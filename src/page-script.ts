@@ -134,9 +134,46 @@ export function networkPageController(opts: {
   }
 }
 
+/** Local time as YYYY-MM-DD HH:mm:ss (24-hour) in the page language; an unparseable value is returned unchanged. */
+export function formatLocalTime(iso: string, lang: string, timeZone?: string): string {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const parts: Record<string, string> = {}
+  const format = new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  })
+  for (const part of format.formatToParts(date)) parts[part.type] = part.value
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+/** The target card's status chip: Guard support problems win, then the loopback TCP probe, else not probed. */
+export function targetProbeStatus(
+  target: Pick<NetworkDiagnosis['targets'][number], 'guardSupport' | 'listener'>,
+): {
+  key: string
+  tone: '' | 'ok' | 'fail'
+} {
+  if (target.guardSupport === 'unsupported') return { key: 'status.unsupported', tone: 'fail' }
+  if (target.guardSupport === 'invalid') return { key: 'status.invalid', tone: 'fail' }
+  if (target.listener)
+    return target.listener.reachable
+      ? { key: 'status.reachable', tone: 'ok' }
+      : { key: 'status.notReachable', tone: 'fail' }
+  return { key: 'status.notProbed', tone: '' }
+}
+
 export const NETWORK_PAGE_SCRIPT = `
 const createNetworkController = ${networkPageController.toString()};
 const factsForTask = ${networkDiagnoseTaskFacts.toString()};
+const formatTime = ${formatLocalTime.toString()};
+const targetStatus = ${targetProbeStatus.toString()};
 const $ = (id) => document.getElementById(id);
 function h(tag, attrs, ...children) {
   const el = document.createElement(tag);
@@ -212,7 +249,21 @@ function placeholder() {
 }
 function probeLabel(probe) {
   if (probe.error === 'not-applicable') return t('notApplicable');
-  return probe.status === 'available' ? '' : t(probe.status === 'unavailable' ? 'unavailable' : 'error') + (probe.error ? ' · ' + probe.error : '');
+  return errorText(probe.error) || t(probe.status === 'error' ? 'error' : 'unavailable');
+}
+// A raw code stays visible after its phrase so users can search for it; unknown codes show as-is.
+function errorText(code) {
+  if (!code) return '';
+  const key = 'code.' + (/^exit-\\d+$/.test(code) ? 'exit' : code);
+  const phrase = t(key);
+  return phrase === key ? code : phrase + ' (' + code + ')';
+}
+function chip(text, tone) {
+  return h('span', { class: 'chip' + (tone ? ' chip-' + tone : ''), text });
+}
+function withTime(key, iso) {
+  const [before, after] = t(key).split('{when}');
+  return [before, h('time', { datetime: iso, title: iso, text: formatTime(iso, lang) }), after || ''];
 }
 function overviewCard(label, value, detail, chipText, chipClass) {
   return h('article', { class: 'panel net-overview-card' },
@@ -222,73 +273,89 @@ function overviewCard(label, value, detail, chipText, chipClass) {
 }
 function renderOverview(diagnosis) {
   const system = diagnosis.system;
+  const failTone = (probe) => probe.status === 'error' ? 'chip-fail' : '';
   const warp = system.warp;
-  const warpState = warp.state === 'connected' ? t('warpConnected') : warp.state === 'disconnected' ? t('warpDisconnected') : t('warpUnknown');
-  const warpHealth = warp.networkHealthy === undefined ? '' : t('networkHealthy') + ': ' + t(warp.networkHealthy ? 'healthy' : 'unhealthy');
-  const enabledCount = system.proxy.protocols.filter((p) => p.enabled).length + (system.proxy.pacEnabled ? 1 : 0) + (system.proxy.autoDiscoveryEnabled ? 1 : 0);
-  const proxyValue = system.proxy.status !== 'available' ? probeLabel(system.proxy) : enabledCount ? t('proxyEnabled', { count: enabledCount }) : t('proxyDisabled');
-  const proxyNotApplicable = system.proxy.error === 'not-applicable';
-  const proxyDetail = proxyNotApplicable ? t('proxyNotApplicableShort') : system.proxy.exceptionCount === undefined ? probeLabel(system.proxy) : t('proxyExceptions', { count: system.proxy.exceptionCount });
-  const dnsValue = system.dns.nameservers.length ? system.dns.nameservers.join(', ') : system.dns.status === 'available' ? t('dnsNone') : probeLabel(system.dns);
-  const routeValue = system.route.gateway || (system.route.status === 'available' ? t('routeNone') : probeLabel(system.route));
-  const routeDetail = system.route.interface ? t('interface') + ': ' + system.route.interface : probeLabel(system.route);
+  let warpCard;
+  if (warp.status === 'available') {
+    const connected = warp.state === 'connected';
+    const value = connected
+      ? (warp.networkHealthy === undefined ? t('warpHealthUnknown') : t(warp.networkHealthy ? 'healthy' : 'unhealthy'))
+      : t(warp.state === 'disconnected' ? 'warpBypassed' : 'warpStateUnknown');
+    const state = t(connected ? 'warpConnected' : warp.state === 'disconnected' ? 'warpDisconnected' : 'warpUnknown');
+    warpCard = [value, '', state, !connected ? '' : warp.networkHealthy === false ? 'chip-fail' : 'chip-ok'];
+  } else if (warp.error === 'not-installed') warpCard = [t('notInstalled'), t('warpNotInstalled'), t(warp.status), failTone(warp)];
+  else warpCard = [probeLabel(warp), '', t(warp.status), failTone(warp)];
+  const proxy = system.proxy;
+  const enabledCount = proxy.protocols.filter((p) => p.enabled).length + (proxy.pacEnabled ? 1 : 0) + (proxy.autoDiscoveryEnabled ? 1 : 0);
+  const proxyCard = proxy.error === 'not-applicable'
+    ? [t('proxyNoSingle'), t('proxyNotApplicableShort'), t('notApplicable'), '']
+    : proxy.status === 'available'
+      ? [enabledCount ? t('proxyEnabled', { count: enabledCount }) : t('proxyDisabled'), '', t(enabledCount ? 'on' : 'off'), enabledCount ? 'chip-ok' : '']
+      : [probeLabel(proxy), '', t(proxy.status), failTone(proxy)];
+  const dns = system.dns;
+  const dnsCard = dns.nameservers.length
+    ? [dns.nameservers.join(', '), t('searchOmitted'), t('status.ok'), 'chip-ok']
+    : dns.status === 'available' ? [t('dnsNone'), '', t('unavailable'), ''] : [probeLabel(dns), '', t(dns.status), failTone(dns)];
+  const route = system.route;
+  const routeDetail = route.interface ? t('interfaceIs', { name: route.interface }) : '';
+  // A default with no gateway (a point-to-point link such as wg0) is still a route; its interface is the answer.
+  const routeCard = route.gateway
+    ? [route.gateway, routeDetail, t('status.ok'), 'chip-ok']
+    : route.status === 'available'
+      ? route.interface ? [routeDetail, '', t('status.ok'), 'chip-ok'] : [t('routeNone'), '', t('unavailable'), '']
+      : [probeLabel(route), '', t(route.status), failTone(route)];
   return [
-    overviewCard(t('warp'), warp.status === 'available' ? warpState : probeLabel(warp), warpHealth || probeLabel(warp), warp.status === 'available' ? warpState : t(warp.status), warp.state === 'connected' && warp.status === 'available' && warp.networkHealthy !== false ? 'chip-ok' : ''),
-    overviewCard(t('systemProxy'), proxyValue, proxyDetail, system.proxy.status === 'available' ? t(enabledCount ? 'on' : 'off') : proxyNotApplicable ? t('notApplicable') : t(system.proxy.status), enabledCount && system.proxy.status === 'available' ? 'chip-ok' : ''),
-    overviewCard(t('dns'), dnsValue, t('searchOmitted'), system.dns.status === 'available' ? 'DNS' : t(system.dns.status), system.dns.nameservers.length ? 'chip-ok' : ''),
-    overviewCard(t('defaultRoute'), routeValue, routeDetail, system.route.interface || t(system.route.status), system.route.gateway ? 'chip-ok' : ''),
+    overviewCard(t('warp'), ...warpCard),
+    overviewCard(t('systemProxy'), ...proxyCard),
+    overviewCard(t('dns'), ...dnsCard),
+    overviewCard(t('defaultRoute'), ...routeCard),
   ];
 }
 function renderSystemDetails(diagnosis) {
   const proxy = diagnosis.system.proxy;
-  if (proxy.error === 'not-applicable') return [h('p', { class: 'net-detail-row muted', text: t('proxyNotApplicable') })];
-  if (!proxy.protocols.length && proxy.status !== 'available') return [h('p', { class: 'net-detail-row muted', text: probeLabel(proxy) || t('unavailable') })];
-  const rows = proxy.protocols.map((p) => {
-    const endpoint = p.enabled && p.host ? p.host + (p.port ? ':' + p.port : '') : '';
-    return h('div', { class: 'net-detail-row' },
-      h('strong', { text: p.protocol.toUpperCase() }),
-      h('span', { class: 'net-detail-value', text: endpoint || t(p.enabled ? 'on' : 'off') }),
-      h('span', { class: 'chip ' + (p.enabled ? 'chip-ok' : ''), text: t(p.enabled ? 'on' : 'off') }));
-  });
-  if (proxy.status === 'available') rows.push(h('div', { class: 'net-detail-row' },
-    h('strong', { text: t('pac') }),
-    h('span', { class: 'net-detail-value', text: t('pacUrlOmitted') }),
-    h('span', { class: 'chip ' + (proxy.pacEnabled ? 'chip-ok' : ''), text: t(proxy.pacEnabled ? 'on' : 'off') })));
-  if (proxy.status === 'available') rows.push(h('div', { class: 'net-detail-row' },
-    h('strong', { text: t('autoDiscovery') }),
-    h('span', { class: 'net-detail-value', text: t(proxy.autoDiscoveryEnabled ? 'on' : 'off') }),
-    h('span', { class: 'chip ' + (proxy.autoDiscoveryEnabled ? 'chip-ok' : ''), text: t(proxy.autoDiscoveryEnabled ? 'on' : 'off') })));
-  if (proxy.exceptionCount !== undefined) rows.push(h('div', { class: 'net-detail-row' },
-    h('strong', { text: 'ExceptionsList' }),
-    h('span', { class: 'net-detail-value', text: t('proxyExceptions', { count: proxy.exceptionCount }) })));
+  // Without rows the overview card already says everything (not applicable, unavailable, error); the section is hidden.
+  if (!proxy.protocols.length && proxy.status !== 'available') return [];
+  const row = (label, value, enabled) => h('div', { class: 'net-detail-row' },
+    h('strong', { text: label }),
+    h('span', { class: 'net-detail-value', text: value }),
+    enabled === undefined ? null : chip(t(enabled ? 'on' : 'off'), enabled ? 'ok' : ''));
+  const rows = proxy.protocols.map((p) => row(p.protocol.toUpperCase(), p.enabled && p.host ? p.host + (p.port ? ':' + p.port : '') : '', p.enabled));
+  if (proxy.status === 'available') {
+    rows.push(row(t('pac'), proxy.pacEnabled ? t('pacUrlOmitted') : '', proxy.pacEnabled));
+    rows.push(row(t('autoDiscovery'), '', proxy.autoDiscoveryEnabled));
+  }
+  if (proxy.exceptionCount !== undefined) rows.push(row(t('exceptions'), t('exceptionCount', { count: proxy.exceptionCount })));
   return rows;
 }
 function candidateCard(candidate) {
-  const key = 'candidate.' + candidate.label;
-  const common = t(key) === key ? candidate.label : t(key);
+  const productKey = 'product.' + candidate.label;
+  const product = t(productKey) === productKey ? '' : t(productKey);
   const processProxy = candidate.processProxy === 'HTTPS_PROXY' || candidate.processProxy === 'ALL_PROXY' ? candidate.processProxy : '';
+  const meta = [candidate.protocol, product ? t('commonFor', { product }) : candidate.label];
+  if (!candidate.reachable && candidate.error) meta.push(errorText(candidate.error));
   return h('article', { class: 'panel net-candidate' },
-    h('h3', { text: processProxy ? t('processProxyCandidate', { variable: processProxy }) : common }),
-    h('span', { class: 'chip ' + (candidate.reachable ? 'chip-ok' : ''), text: t(candidate.reachable ? 'reachable' : 'notReachable') }),
-    h('p', { class: 'net-candidate-meta small muted', text: candidate.protocol + ' · ' + candidate.host + ':' + candidate.port + (candidate.error ? ' · ' + candidate.error : '') + (processProxy ? ' · ' + common : '') }));
-}
-function routeLabel(target) {
-  return h('p', { class: 'net-route' }, h('span', { class: 'muted' }, t('route') + ': '), h('code', { text: target.proxy }));
+    h('h3', { text: candidate.host + ':' + candidate.port }, processProxy ? h('span', { class: 'net-tag', text: t('processProxyTag', { variable: processProxy }) }) : null),
+    chip(t(candidate.reachable ? 'status.reachable' : 'status.notReachable'), candidate.reachable ? 'ok' : 'fail'),
+    h('p', { class: 'net-candidate-meta small muted', text: meta.filter(Boolean).join(' · ') }));
 }
 function targetCard(target) {
   const listener = target.listener;
   const support = target.guardSupport;
+  const status = targetStatus(target);
+  const route = support === 'direct'
+    ? h('p', { class: 'net-route' }, h('span', { class: 'muted', text: t('route') }), t('support.direct'))
+    : h('p', { class: 'net-route' }, h('span', { class: 'muted', text: t('route') }), h('code', { text: target.proxy }), support === 'http-connect' ? ' · ' + t('support.http-connect') : null);
+  const probe = listener
+    ? t('probedPort', { host: listener.host, port: listener.port }) + (listener.reachable ? '' : ' · ' + errorText(listener.error || 'failed'))
+    : support === 'http-connect' ? t('noListener') : '';
   const guardBits = [t('guard.' + target.guard.status)];
   if (target.guard.loc) guardBits.push(target.guard.loc);
-  guardBits.push(target.guard.checkedAt ? t('guardChecked', { when: target.guard.checkedAt }) : t('guardNever'));
-  if (target.guard.error) guardBits.push(target.guard.error);
+  if (target.guard.error) guardBits.push(errorText(target.guard.error));
   return h('article', { class: 'panel net-target' },
-    h('div', { class: 'net-target-head' }, h('h3', { text: target.url }), h('span', { class: 'chip', text: t('support.' + support) })),
-    routeLabel(target),
-    h('p', { class: listener && listener.reachable ? 'net-ok' : 'small muted', text: listener
-      ? t(listener.reachable ? 'listenerUp' : 'listenerDown', { host: listener.host, port: listener.port, error: listener.error || t('failed') })
-      : support === 'direct' ? t('direct') : t('noListener') }),
-    h('p', { class: 'small muted', text: guardBits.join(' · ') }),
+    h('div', { class: 'net-target-head' }, h('h3', { text: target.url }), chip(t(status.key), status.tone)),
+    route,
+    probe ? h('p', { class: 'small muted', text: probe }) : null,
+    h('p', { class: 'small muted' }, guardBits.join(' · '), target.guard.checkedAt ? [' · ', ...withTime('guardChecked', target.guard.checkedAt)] : null),
     support === 'unsupported' ? h('p', { class: 'note note-warn', text: t('unsupported') }) : null,
     support === 'invalid' ? h('p', { class: 'note note-warn', text: t('invalid') }) : null);
 }
@@ -303,17 +370,21 @@ function fillRegion(id, diagnosis, renderItems) {
 function renderMain() {
   document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
   document.title = BOOT.title === t('title') ? t('title') : BOOT.title + ' · ' + t('title');
-  $('title').textContent = t('title');
+  const title = $('title');
+  if (title) title.textContent = t('title');
   $('tagline').textContent = t('tagline');
   $('intro').textContent = t('intro');
-  $('scope').textContent = t('scope');
-  $('not-covered').textContent = t('notCovered');
   $('overview-heading').textContent = t('overview');
   // Only macOS has one system proxy to name; older DTOs without a platform get the neutral title.
   $('system-heading').textContent = t(controller.state.diagnosis && controller.state.diagnosis.platform === 'darwin' ? 'systemDetails' : 'systemProxy');
+  const proxy = controller.state.diagnosis && controller.state.diagnosis.system.proxy;
+  $('system-section').hidden = Boolean(proxy && proxy.status !== 'available' && !proxy.protocols.length);
   $('local-heading').textContent = t('localCandidates');
   $('targets-heading').textContent = t('guardTargets');
   $('warp-limit').textContent = t('warpLimit');
+  // The caveat is about a connected client; with no client or a disconnected one it contradicts the card.
+  const warp = controller.state.diagnosis && controller.state.diagnosis.system.warp;
+  $('warp-limit').hidden = !(warp && warp.status === 'available' && warp.state === 'connected');
   $('candidate-limit').textContent = t('candidateLimit');
   $('tcp-limit').textContent = t('tcpLimit');
   $('diagnose').textContent = controller.state.loading ? t('diagnosing') : controller.state.diagnosis ? t('diagnoseAgain') : t('diagnose');
@@ -325,7 +396,7 @@ function renderMain() {
   clear(status);
   if (controller.state.loading) status.append(h('p', { class: 'note', role: 'status', text: t('loading') }));
   else if (controller.state.error) status.append(h('p', { class: 'note note-fail', role: 'alert', text: t('diagnoseFailed', { message: controller.state.error }) }));
-  else if (controller.state.diagnosis) status.append(h('p', { class: 'small muted', role: 'status', text: t('checkedAt', { when: controller.state.diagnosis.checkedAt }) }));
+  else if (controller.state.diagnosis) status.append(h('p', { class: 'small muted', role: 'status' }, withTime('checkedAt', controller.state.diagnosis.checkedAt)));
   const diagnosis = controller.state.diagnosis;
   fillRegion('overview', diagnosis, renderOverview);
   fillRegion('system-details', diagnosis, renderSystemDetails);

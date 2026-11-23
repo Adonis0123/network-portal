@@ -4,83 +4,99 @@ import { fallbackNetworkStyles } from './styles.ts'
 const MESSAGES = {
   en: {
     title: 'Network',
-    tagline: 'WARP, system routes, local proxy listeners, and Guard targets.',
+    tagline: 'WARP, DNS, default route, local proxy ports, and Guard targets.',
     intro:
-      'A read-only view of the connections this machine is configured to use. Diagnosis is offline: it sends no trace and changes no network setting or route.',
-    scope:
-      "Process proxy and Guard facts come from this page's host process environment. Older sessions keep their own environment; run the host's network diagnosis CLI in that terminal to inspect them.",
-    notCovered:
-      'System commands and TCP probes only observe the current machine. They do not control WARP, a proxy app, DNS, or routing.',
+      "A read-only, offline look at this machine's network setup. It sends no online probe and changes no setting or route.",
     overview: 'Overview',
     systemDetails: 'macOS system proxy',
     localCandidates: 'Local proxy candidates',
     guardTargets: 'Guard targets',
     warp: 'WARP',
-    networkHealthy: 'Network healthy',
-    healthy: 'Yes',
-    unhealthy: 'No',
+    healthy: 'Network healthy',
+    unhealthy: 'Network unhealthy',
+    warpHealthUnknown: 'Network state not reported',
+    warpBypassed: 'Traffic does not use WARP',
+    warpStateUnknown: 'Connection state not reported',
     warpConnected: 'Connected',
     warpDisconnected: 'Disconnected',
     warpUnknown: 'Unknown',
-    warpLimit: 'Connected does not mean all traffic uses WARP. It only reports the WARP client state.',
+    notInstalled: 'Not installed',
+    warpNotInstalled: 'warp-cli not found (not-installed)',
+    warpLimit: 'Connected does not mean all traffic uses WARP; this only reports the WARP client state.',
     systemProxy: 'System proxy',
     pac: 'Automatic proxy (PAC)',
     autoDiscovery: 'Automatic proxy discovery',
     pacUrlOmitted: 'PAC URL omitted',
-    proxyEnabled: '{count} enabled',
-    proxyDisabled: 'All proxy methods off',
-    proxyExceptions: '{count} exceptions; names omitted',
+    proxyEnabled: '{count} active',
+    proxyDisabled: 'No proxy method active',
+    exceptions: 'Exceptions',
+    exceptionCount: '{count}; names omitted',
     notApplicable: 'Not applicable',
-    proxyNotApplicable:
-      'Linux has no single system proxy setting. Process proxies come from HTTPS_PROXY / ALL_PROXY; see the candidates and routes below.',
-    proxyNotApplicableShort: 'Process proxies use HTTPS_PROXY / ALL_PROXY',
-    dns: 'DNS default resolver',
-    dnsNone: 'No nameservers returned',
+    proxyNoSingle: 'No single setting',
+    proxyNotApplicableShort: 'Process proxies: see HTTPS_PROXY / ALL_PROXY below',
+    dns: 'DNS servers',
+    dnsNone: 'No DNS servers returned',
     searchOmitted: 'Search domains omitted',
     defaultRoute: 'Default route',
     routeNone: 'No route details returned',
-    interface: 'Interface',
-    gateway: 'Gateway',
+    interfaceIs: 'Interface: {name}',
     on: 'On',
     off: 'Off',
     unavailable: 'Unavailable',
-    available: 'Available',
     error: 'Error',
-    reachable: 'TCP reachable',
-    notReachable: 'TCP not reachable',
+    'status.ok': 'OK',
+    'status.reachable': 'Reachable',
+    'status.notReachable': 'Not reachable',
+    'status.unsupported': 'Unsupported',
+    'status.invalid': 'Invalid address',
+    'status.notProbed': 'Not probed',
     candidateLimit:
-      'Ports are common defaults for Clash Verge, Clash and v2rayN, not identified processes; a port that HTTPS_PROXY or ALL_PROXY points at is marked as the process proxy. TCP reachability does not prove the proxy protocol or upstream availability.',
-    processProxyCandidate: 'Process proxy ({variable})',
+      "These are common default ports for Clash Verge, Clash and v2rayN, not identified processes. HTTPS_PROXY / ALL_PROXY come from this page's host process environment; an older terminal session may differ, so run the host's network diagnosis CLI in that terminal.",
+    processProxyTag: '{variable} points here',
+    commonFor: 'common for {product}',
+    'product.Common Clash Verge mixed port': 'Clash Verge',
+    'product.Common Clash HTTP port': 'Clash',
+    'product.Common v2rayN SOCKS port': 'v2rayN',
     diagnose: 'Diagnose connection',
     diagnoseAgain: 'Diagnose again',
     diagnosing: 'Diagnosing…',
     loading:
-      'Running bounded local commands and TCP probes in parallel. No online trace is sent; this normally takes under two seconds.',
+      'Running bounded local commands and TCP probes in parallel. No online probe is sent; this normally takes under two seconds.',
     diagnoseFailed: 'Diagnosis failed: {message}',
-    checkedAt: 'Offline diagnosis at {when}. Cached Guard results have their own timestamps below.',
-    empty: 'No guarded targets were supplied. The host can add targets before diagnosing their routes.',
-    route: 'Selected route',
-    direct: 'Direct connection; there is no proxy listener to test.',
-    noListener:
-      'No loopback TCP probe: the proxy is remote, invalid, or has no explicit port for this protocol.',
-    listenerUp: 'Loopback TCP listener reachable at {host}:{port}.',
-    listenerDown: 'Loopback TCP listener not reachable at {host}:{port} ({error}).',
-    failed: 'failed',
+    checkedAt: 'Offline diagnosis at {when}',
+    empty: 'No Guard targets were supplied. The host can add targets before diagnosing their routes.',
+    route: 'Route: ',
+    noListener: 'No local TCP probe: the proxy is remote or has no explicit port.',
+    probedPort: 'Local listener {host}:{port}',
     tcpLimit:
-      'A reachable TCP listener does not prove that HTTP CONNECT, SOCKS, TLS, or upstream connectivity works.',
+      'A reachable TCP port does not prove that HTTP CONNECT, SOCKS, TLS, or upstream connectivity works.',
     'support.direct': 'Direct',
     'support.http-connect': 'HTTP CONNECT',
-    'support.unsupported': 'Unsupported proxy',
-    'support.invalid': 'Invalid proxy',
     unsupported:
-      'Network Guard does not support this SOCKS or non-HTTP proxy route. Use HTTP CONNECT or direct before an online Guard check.',
+      'Guard does not support this SOCKS or non-HTTP proxy route. Use HTTP CONNECT or direct before an online Guard check.',
     invalid: 'The proxy address is invalid. Correct the environment and start a new session.',
     'guard.ok': 'Cached Guard: allowed',
     'guard.blocked': 'Cached Guard: blocked',
     'guard.unknown': 'Cached Guard: unknown',
     'guard.not-checked': 'Cached Guard: not checked',
-    guardChecked: 'Guard checked {when}',
-    guardNever: 'Guard has no cached check',
+    guardChecked: 'checked {when}',
+    'code.not-installed': 'not installed',
+    'code.timeout': 'timed out',
+    'code.failed': 'failed',
+    'code.exit': 'command failed',
+    'code.unsupported-platform': 'unsupported platform',
+    'code.invalid-host': 'invalid host',
+    'code.ECONNREFUSED': 'connection refused',
+    'code.ECONNRESET': 'connection reset',
+    'code.EHOSTUNREACH': 'host unreachable',
+    'code.ENETUNREACH': 'network unreachable',
+    'code.EACCES': 'permission denied',
+    'code.connection-refused': 'connection refused',
+    'code.lookup-failed': 'lookup failed',
+    'code.no-country': 'no country returned',
+    'code.http-error': 'HTTP error',
+    'code.proxy-error': 'proxy error',
+    'code.request-failed': 'request failed',
     ask: 'Let AI diagnose',
     fixedOnly:
       'This fixed task contains only the current redacted diagnostic facts above. No free text, attachments, account details, private exception names, or other context is included.',
@@ -99,84 +115,95 @@ const MESSAGES = {
   },
   zh: {
     title: 'Network',
-    tagline: '查看 WARP、系统路由、本地代理 listener 和 Guard targets。',
-    intro: '只读查看这台机器当前配置的连接方式。离线诊断不发送 trace，也不修改任何网络设置或路由。',
-    scope:
-      '进程代理和 Guard facts 来自当前页面宿主进程的环境。旧会话保留自己的环境；请在对应终端运行宿主的网络诊断 CLI。',
-    notCovered: '系统命令和 TCP 探测只观察当前机器，不控制 WARP、代理应用、DNS 或路由。',
+    tagline: '查看 WARP、DNS、默认路由、本地代理端口和 Guard 检查目标。',
+    intro: '只读、离线查看这台机器的网络设置：不发在线探测，也不改任何设置或路由。',
     overview: '概览',
     systemDetails: 'macOS 系统代理',
     localCandidates: '本地代理候选端口',
-    guardTargets: 'Guard targets',
+    guardTargets: 'Guard 检查目标',
     warp: 'WARP',
-    networkHealthy: 'Network healthy',
-    healthy: '是',
-    unhealthy: '否',
-    warpConnected: 'Connected',
-    warpDisconnected: 'Disconnected',
+    healthy: '网络正常',
+    unhealthy: '网络不正常',
+    warpHealthUnknown: '没有返回网络状态',
+    warpBypassed: '流量不走 WARP',
+    warpStateUnknown: '没有读到连接状态',
+    warpConnected: '已连接',
+    warpDisconnected: '未连接',
     warpUnknown: '未知',
-    warpLimit: 'Connected 不代表所有流量都走 WARP；这里只报告 WARP 客户端状态。',
+    notInstalled: '未安装',
+    warpNotInstalled: '未检测到 warp-cli (not-installed)',
+    warpLimit: '已连接不代表所有流量都走 WARP，这里只看 WARP 客户端的状态。',
     systemProxy: '系统代理',
     pac: '自动代理（PAC）',
     autoDiscovery: '自动代理发现',
-    pacUrlOmitted: '不返回 PAC URL',
-    proxyEnabled: '已启用 {count} 项',
-    proxyDisabled: '所有代理方式均已关闭',
-    proxyExceptions: '{count} 条例外；不显示域名',
+    pacUrlOmitted: '不显示 PAC 地址',
+    proxyEnabled: '{count} 项生效',
+    proxyDisabled: '没有生效的代理方式',
+    exceptions: '代理例外',
+    exceptionCount: '{count} 条，不显示域名',
     notApplicable: '不适用',
-    proxyNotApplicable:
-      'Linux 没有统一的系统代理设置；进程代理看下方 HTTPS_PROXY / ALL_PROXY 对应的候选端口和路由。',
-    proxyNotApplicableShort: '进程代理看 HTTPS_PROXY / ALL_PROXY',
-    dns: 'DNS default resolver',
-    dnsNone: '未返回 nameserver',
-    searchOmitted: '不返回 search domains',
+    proxyNoSingle: '无统一设置',
+    proxyNotApplicableShort: '进程代理看下方 HTTPS_PROXY / ALL_PROXY',
+    dns: 'DNS 服务器',
+    dnsNone: '没有返回 DNS 服务器',
+    searchOmitted: '不显示搜索域',
     defaultRoute: '默认路由',
-    routeNone: '未返回路由详情',
-    interface: 'Interface',
-    gateway: 'Gateway',
-    on: '开启',
-    off: '关闭',
+    routeNone: '没有返回路由详情',
+    interfaceIs: '网卡：{name}',
+    on: '已开启',
+    off: '已关闭',
     unavailable: '不可用',
-    available: '可用',
-    error: '错误',
-    reachable: 'TCP 可连接',
-    notReachable: 'TCP 不可连接',
+    error: '出错',
+    'status.ok': '正常',
+    'status.reachable': '可连接',
+    'status.notReachable': '不可连接',
+    'status.unsupported': '不支持',
+    'status.invalid': '地址无效',
+    'status.notProbed': '未探测',
     candidateLimit:
-      '这些是 Clash Verge、Clash 和 v2rayN 的常见默认端口，不代表已识别进程；HTTPS_PROXY 或 ALL_PROXY 指向的端口会标为进程代理。TCP 可连接不代表代理协议或上游网络可用。',
-    processProxyCandidate: '进程代理（{variable}）',
-    'candidate.Common Clash Verge mixed port': '常见端口：Clash Verge mixed',
-    'candidate.Common Clash HTTP port': '常见端口：Clash HTTP',
-    'candidate.Common v2rayN SOCKS port': '常见端口：v2rayN SOCKS',
+      '这些是 Clash Verge、Clash 和 v2rayN 的常见默认端口，不代表认出了是哪个程序。HTTPS_PROXY / ALL_PROXY 取自本页宿主进程的环境；旧终端会话的环境可能不同，要看它就在那个终端运行宿主的网络诊断 CLI。',
+    processProxyTag: '{variable} 指向此端口',
+    commonFor: '常见于 {product}',
     diagnose: '诊断连接',
     diagnoseAgain: '重新诊断',
     diagnosing: '正在诊断…',
-    loading: '正在并行运行有界本地命令和 TCP 探测，不发送在线 trace。通常两秒内完成。',
+    loading: '正在并行跑本机命令和 TCP 探测，不发在线探测，一般两秒内完成。',
     diagnoseFailed: '诊断失败：{message}',
-    checkedAt: '离线诊断时间：{when}。缓存的 Guard 结果在下方单独标注时间。',
-    empty: '宿主没有提供受 Guard 管理的 target。添加 target 后才能诊断它的路由。',
-    route: '本次选择的路由',
-    direct: '直连，没有代理 listener 要测试。',
-    noListener: '未探测 loopback TCP：代理在远程、地址无效，或该协议没有明确端口。',
-    listenerUp: 'loopback TCP listener 可连接：{host}:{port}。',
-    listenerDown: 'loopback TCP listener 连不上：{host}:{port}（{error}）。',
-    failed: '失败',
-    tcpLimit: 'TCP 能连接不代表 HTTP CONNECT、SOCKS、TLS 或上游网络可用。',
+    checkedAt: '离线诊断时间：{when}',
+    empty: '宿主没有提供检查目标。加上检查目标后，才能诊断它们的路由。',
+    route: '路由：',
+    noListener: '没有做本机 TCP 探测：代理在远程，或没写明端口。',
+    probedPort: '本机监听端口 {host}:{port}',
+    tcpLimit: 'TCP 能连上不代表 HTTP CONNECT、SOCKS、TLS 或上游网络可用。',
     'support.direct': '直连',
     'support.http-connect': 'HTTP CONNECT',
-    'support.unsupported': '不支持的代理',
-    'support.invalid': '代理地址无效',
-    unsupported:
-      'Network Guard 不支持此 SOCKS 或非 HTTP 代理路由。在线 Guard 检查前，请改用 HTTP CONNECT 或直连。',
+    unsupported: 'Guard 不支持这条 SOCKS 或非 HTTP 代理路由。在线 Guard 检查前，请改用 HTTP CONNECT 或直连。',
     invalid: '代理地址无效。请修正环境变量，再新开会话。',
     'guard.ok': '缓存 Guard：允许',
     'guard.blocked': '缓存 Guard：阻止',
     'guard.unknown': '缓存 Guard：未知',
     'guard.not-checked': '缓存 Guard：未检查',
-    guardChecked: 'Guard 检查于 {when}',
-    guardNever: 'Guard 没有缓存检查',
+    guardChecked: '检查于 {when}',
+    'code.not-installed': '未安装',
+    'code.timeout': '超时',
+    'code.failed': '失败',
+    'code.exit': '命令出错',
+    'code.unsupported-platform': '不支持此系统',
+    'code.invalid-host': '地址无效',
+    'code.ECONNREFUSED': '拒绝连接',
+    'code.ECONNRESET': '连接被重置',
+    'code.EHOSTUNREACH': '主机不可达',
+    'code.ENETUNREACH': '网络不可达',
+    'code.EACCES': '没有权限',
+    'code.connection-refused': '拒绝连接',
+    'code.lookup-failed': '域名解析失败',
+    'code.no-country': '没有返回国家',
+    'code.http-error': 'HTTP 出错',
+    'code.proxy-error': '代理出错',
+    'code.request-failed': '请求失败',
     ask: '让 AI 诊断',
     fixedOnly:
-      '固定任务只包含上方当前脱敏诊断 facts，不含自由文本、附件、账号详情、私人例外域名或其他 context。',
+      '固定任务只包含上方当前脱敏后的诊断信息，不含自由文本、附件、账号详情、私人例外域名或其他上下文。',
     actualPrompt: '将发送的完整提示词',
     promptLoading: '正在生成实际提示词…',
     promptChanged: '提示词有变化。请查看新提示词后再次确认；这次没有打开终端。',
@@ -217,8 +244,7 @@ const NETWORK_CSS = `
 .network-hero h2 { font-size: var(--title-size); font-weight: var(--title-weight); margin-bottom: 8px; }
 .network-hero p { max-width: 760px; color: var(--muted); overflow-wrap: anywhere; }
 .network-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
-.network-notes { display: grid; gap: 8px; margin: 16px 0 20px; }
-.network-notes p { overflow-wrap: anywhere; }
+.net-note { margin-top: 8px; overflow-wrap: anywhere; }
 .net-section { margin-bottom: 24px; min-width: 0; }
 .net-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .net-overview-card { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
@@ -235,6 +261,7 @@ p.net-detail-row { display: block; margin: 0; }
 .net-candidate-list { display: grid; gap: 12px; }
 .net-candidate { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; }
 .net-candidate h3 { font-size: var(--font-size); overflow-wrap: anywhere; }
+.net-tag { display: inline-block; margin-left: 8px; padding: 0 6px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); font-size: var(--small); font-weight: 500; line-height: 18px; vertical-align: 1px; }
 .net-candidate .net-candidate-meta { grid-column: 1 / -1; overflow-wrap: anywhere; }
 #targets { display: grid; gap: 12px; min-width: 0; }
 .net-target { min-width: 0; display: grid; gap: 10px; overflow: hidden; }
@@ -243,7 +270,6 @@ p.net-detail-row { display: block; margin: 0; }
 .net-target .chip { flex: none; max-width: 100%; white-space: normal; text-align: center; }
 .net-route { min-width: 0; overflow-wrap: anywhere; }
 .net-route code { overflow-wrap: anywhere; }
-.net-ok { color: var(--ok); }
 .net-target .note { display: block; overflow-wrap: anywhere; }
 .net-placeholder { min-height: 96px; }
 .net-empty { color: var(--muted); }
@@ -292,6 +318,8 @@ export function renderNetworkPage(opts: NetworkPageOptions): string {
   const title = opts.chrome?.title ?? 'Network'
   const favicon = opts.favicon ?? DEFAULT_NETWORK_FAVICON
   const footer = opts.footer ?? 'network-portal'
+  // A header bar already shows the title as h1; a second visible heading would repeat it.
+  const bar = opts.chrome?.header === 'bar'
   const boot = jsonForScript({
     basePath,
     token: opts.token,
@@ -311,25 +339,23 @@ export function renderNetworkPage(opts: NetworkPageOptions): string {
 <link rel="icon" type="image/svg+xml" href="${attr(favicon)}">
 <style${nonce}>${fallbackNetworkStyles()}${NETWORK_CSS}${opts.hostStyles ?? ''}</style>
 </head>
-<body${opts.chrome?.header === 'bar' ? ' class="header-bar"' : ''}>
+<body${bar ? ' class="header-bar"' : ''}>
 <header class="top network-top">
   <div class="top-in">
-    <div class="brand"><span class="logo" aria-hidden="true"><img src="${attr(favicon)}" alt=""></span><div><h1>${attr(title)}</h1><p id="tagline" class="tagline">WARP, system routes, local proxy listeners, and Guard targets.</p></div></div>
+    <div class="brand"><span class="logo" aria-hidden="true"><img src="${attr(favicon)}" alt=""></span><div><h1>${attr(title)}</h1><p id="tagline" class="tagline">WARP, DNS, default route, local proxy ports, and Guard targets.</p></div></div>
     <div class="top-actions"><button id="language" class="btn" type="button"${lang === 'auto' ? '' : ' hidden'}>中文</button></div>
   </div>
 </header>
 <main class="wrap network-main">
-  <section class="network-hero" aria-labelledby="title">
-    <h2 id="title">Network</h2>
-    <p id="intro">A read-only, offline view of this machine's network configuration.</p>
+  <section class="network-hero"${bar ? ` aria-label="${attr(title)}"` : ' aria-labelledby="title"'}>
+    ${bar ? '' : '<h2 id="title">Network</h2>\n    '}<p id="intro">A read-only, offline look at this machine's network setup.</p>
     <div class="network-actions"><button id="diagnose" class="btn btn-primary" type="button" aria-busy="true">Diagnosing…</button><button id="ask-open" class="btn" type="button" aria-haspopup="dialog" hidden>Let AI diagnose</button></div>
-    <div id="status"><p class="note" role="status">Running an offline diagnosis. No online trace is sent.</p></div>
+    <div id="status"><p class="note" role="status">Running an offline diagnosis. No online probe is sent.</p></div>
   </section>
-  <section class="network-notes" aria-label="Scope"><p id="scope" class="note"></p><p id="not-covered" class="small muted"></p></section>
-  <section class="net-section" aria-labelledby="overview-heading"><div class="section-head"><h2 id="overview-heading">Overview</h2></div><div id="overview" class="net-overview" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="warp-limit" class="small muted network-notes"></p></section>
-  <section class="net-section" aria-labelledby="system-heading"><div class="section-head"><h2 id="system-heading">System proxy</h2></div><div id="system-details" class="panel net-detail-panel" aria-busy="true"><div class="net-detail-row"><span class="sk sk-line w70"></span></div></div></section>
-  <section class="net-section" aria-labelledby="local-heading"><div class="section-head"><h2 id="local-heading">Local proxy candidates</h2></div><div id="local-candidates" class="net-candidate-list" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="candidate-limit" class="small muted network-notes"></p></section>
-  <section class="net-section" aria-labelledby="targets-heading"><div class="section-head"><h2 id="targets-heading">Guard targets</h2></div><div id="targets" aria-live="polite" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="tcp-limit" class="small muted network-notes"></p></section>
+  <section class="net-section" aria-labelledby="overview-heading"><div class="section-head"><h2 id="overview-heading">Overview</h2></div><div id="overview" class="net-overview" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="warp-limit" class="small muted net-note"></p></section>
+  <section id="system-section" class="net-section" aria-labelledby="system-heading"><div class="section-head"><h2 id="system-heading">System proxy</h2></div><div id="system-details" class="panel net-detail-panel" aria-busy="true"><div class="net-detail-row"><span class="sk sk-line w70"></span></div></div></section>
+  <section class="net-section" aria-labelledby="local-heading"><div class="section-head"><h2 id="local-heading">Local proxy candidates</h2></div><div id="local-candidates" class="net-candidate-list" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="candidate-limit" class="small muted net-note"></p></section>
+  <section class="net-section" aria-labelledby="targets-heading"><div class="section-head"><h2 id="targets-heading">Guard targets</h2></div><div id="targets" aria-live="polite" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="tcp-limit" class="small muted net-note"></p></section>
   <footer class="foot muted small">${attr(footer)}</footer>
 </main>
 <dialog id="ask-dialog" class="dialog dialog-wide" aria-labelledby="ask-title">

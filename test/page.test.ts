@@ -7,6 +7,7 @@ describe('renderNetworkPage', () => {
   it('renders a complete bilingual page with generic styles and favicon', () => {
     const page = renderNetworkPage({ basePath: '', token: 'token' })
     assert.match(page, /<h1>Network<\/h1>/)
+    assert.match(page, /<h2 id="title">Network<\/h2>/)
     assert.match(page, /id="overview"/)
     assert.match(page, /id="system-details"/)
     assert.match(page, /id="local-candidates"/)
@@ -37,6 +38,7 @@ describe('renderNetworkPage', () => {
     assert.match(page, /<html lang="zh-CN">/)
     assert.match(page, /<body class="header-bar">/)
     assert.match(page, /<h1>Host Network<\/h1>/)
+    assert.doesNotMatch(page, /id="title"/)
     assert.match(page, /--accent: #123456/)
     assert.match(page, /icon\.svg\?a=1&amp;b=2/)
     assert.match(page, /Example &lt;host&gt;/)

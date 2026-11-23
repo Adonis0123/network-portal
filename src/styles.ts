@@ -68,6 +68,7 @@ code { font-family: var(--mono); font-size: var(--small); }
 :where(:focus-visible) { outline: var(--focus-outline); outline-offset: 2px; box-shadow: var(--focus-ring); }
 .chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 0 8px; border-radius: var(--radius-pill); background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); font: inherit; font-size: var(--small); line-height: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip-ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
+.chip-fail { background: var(--fail-soft); border-color: transparent; color: var(--fail); }
 .note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); color: var(--muted); font-size: var(--font-size); }
 .note-fail { background: var(--fail-soft); color: var(--fail); }
 .note-warn { background: var(--warn-soft); color: var(--warn); }

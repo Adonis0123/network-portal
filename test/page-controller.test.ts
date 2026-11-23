@@ -4,7 +4,12 @@ import { runInNewContext } from 'node:vm'
 import type { NetworkDiagnosis } from '../src/diagnose.ts'
 import { networkDiagnoseTaskFacts } from '../src/facts.ts'
 import { renderNetworkPage } from '../src/page.ts'
-import { NETWORK_PAGE_SCRIPT, networkPageController } from '../src/page-script.ts'
+import {
+  formatLocalTime,
+  NETWORK_PAGE_SCRIPT,
+  networkPageController,
+  targetProbeStatus,
+} from '../src/page-script.ts'
 import { DIAGNOSIS } from './fixtures.ts'
 
 async function controller(api: (path: string, body: unknown) => Promise<unknown>) {
@@ -151,7 +156,7 @@ describe('Network page controller', () => {
     assert.equal(proxy.chipText, 'on')
   })
 
-  it('does not mark an unhealthy connected WARP overview as ok', () => {
+  it('marks a connected but unhealthy WARP overview as failing', () => {
     const start = NETWORK_PAGE_SCRIPT.indexOf('function renderOverview(diagnosis)')
     const end = NETWORK_PAGE_SCRIPT.indexOf('function renderSystemDetails', start)
     const diagnosis = {
@@ -171,7 +176,7 @@ describe('Network page controller', () => {
       }),
     })
     runInNewContext(`${NETWORK_PAGE_SCRIPT.slice(start, end)}; this.render = renderOverview`, ctx)
-    assert.equal(ctx.render!(diagnosis)[0]!.chipClass, '')
+    assert.equal(ctx.render!(diagnosis)[0]!.chipClass, 'chip-fail')
   })
 
   it('clears target-list busy state after the first diagnosis completes', () => {
@@ -209,6 +214,7 @@ describe('Network page controller', () => {
       t: (key: string) => key,
       h: () => ({}),
       placeholder: () => ({}),
+      withTime: () => [],
       fillRegion: () => {},
       renderOverview: () => [],
       renderSystemDetails: () => [],
@@ -382,28 +388,47 @@ describe('Network page controller', () => {
     assert.equal(c.state.ask, null)
   })
 
-  it('shows a not-applicable Linux system proxy as neutral "not applicable", not unavailable', () => {
-    for (const [lang, label, unavailable] of [
-      ['zh', '不适用', '不可用'],
-      ['en', 'Not applicable', 'Unavailable'],
+  it('shows a not-applicable Linux system proxy once, as neutral "not applicable"', () => {
+    for (const [lang, label, value, unavailable] of [
+      ['zh', '不适用', '无统一设置', '不可用'],
+      ['en', 'Not applicable', 'No single setting', 'Unavailable'],
     ] as const) {
-      const ctx = scriptSlice('function probeLabel(probe)', 'function candidateCard', lang)
+      const ctx = scriptSlice('function probeLabel(probe)', 'function fillRegion', lang)
       const render = ctx.renderOverview as (d: NetworkDiagnosis) => Node[]
       const details = ctx.renderSystemDetails as (d: NetworkDiagnosis) => Node[]
       const card = render(LINUX)[1]!
-      const text = texts(card).join('\n')
-      assert.ok(texts(card).filter((value) => value === label).length >= 2, text)
-      assert.match(text, /HTTPS_PROXY \/ ALL_PROXY/)
-      assert.doesNotMatch(text, new RegExp(`${unavailable}|not-applicable`))
+      const text = texts(card)
+      assert.equal(text.filter((v) => v === label).length, 1, text.join('\n'))
+      assert.ok(text.includes(value), text.join('\n'))
+      assert.match(text.join('\n'), /HTTPS_PROXY \/ ALL_PROXY/)
+      assert.doesNotMatch(text.join('\n'), new RegExp(`${unavailable}|not-applicable`))
       assert.doesNotMatch(classes(card).join(' '), /fail|warn|err/)
-      const rows = details(LINUX)
-      assert.equal(rows.length, 1)
-      assert.match(
-        texts(rows[0]).join(''),
-        lang === 'zh' ? /Linux 没有统一的系统代理设置/ : /Linux has no single/,
-      )
-      assert.doesNotMatch(classes(rows[0]).join(' '), /fail|warn|err/)
+      assert.equal(details(LINUX).length, 0)
     }
+  })
+
+  it('says each overview fact once and turns raw codes into a phrase with the code', () => {
+    const ctx = scriptSlice('function probeLabel(probe)', 'function fillRegion', 'zh')
+    const render = ctx.renderOverview as (d: NetworkDiagnosis) => Node[]
+    const missing: NetworkDiagnosis = {
+      ...LINUX,
+      system: {
+        ...LINUX.system,
+        warp: { status: 'unavailable', state: 'unknown', error: 'not-installed' },
+        dns: { status: 'error', nameservers: [], error: 'timeout' },
+        route: { status: 'available', interface: 'eth0', gateway: '198.18.0.2' },
+      },
+    }
+    const [warp, , dns, route] = render(missing).map(texts)
+    assert.deepEqual(warp, ['WARP', '不可用', '未安装', '未检测到 warp-cli (not-installed)'])
+    assert.deepEqual(dns, ['DNS 服务器', '出错', '超时 (timeout)'])
+    assert.deepEqual(route, ['默认路由', '正常', '198.18.0.2', '网卡：eth0'])
+    assert.match(classes(render(missing)[2]).join(' '), /chip-fail/)
+    const pointToPoint = {
+      ...missing,
+      system: { ...missing.system, route: { status: 'available', interface: 'wg0' } },
+    } as NetworkDiagnosis
+    assert.deepEqual(render(pointToPoint).map(texts)[3], ['默认路由', '正常', '网卡：wg0'])
   })
 
   it('titles the system proxy section by platform and stays neutral for older DTOs', () => {
@@ -420,6 +445,7 @@ describe('Network page controller', () => {
           return elements.get(id)
         },
         placeholder: () => ({}),
+        withTime: () => [],
         fillRegion: () => {},
         clear: () => {},
         renderOverview: () => [],
@@ -428,43 +454,145 @@ describe('Network page controller', () => {
         targetCard: () => ({}),
       })
       ;(ctx.renderMain as () => void)()
+      sectionHidden = elements.get('system-section')!.hidden
+      warpLimitHidden = elements.get('warp-limit')!.hidden
       return elements.get('system-heading')!.textContent
     }
+    let sectionHidden: unknown
+    let warpLimitHidden: unknown
     const legacy = { ...DIAGNOSIS }
     delete legacy.platform
     assert.equal(heading('zh', { ...DIAGNOSIS, platform: 'darwin' }), 'macOS 系统代理')
+    assert.equal(sectionHidden, false)
     assert.equal(heading('en', { ...DIAGNOSIS, platform: 'darwin' }), 'macOS system proxy')
     assert.equal(heading('zh', LINUX), '系统代理')
+    assert.equal(sectionHidden, true)
     assert.equal(heading('en', LINUX), 'System proxy')
     assert.equal(heading('zh', legacy), '系统代理')
     assert.equal(heading('zh', null), '系统代理')
+    assert.equal(warpLimitHidden, true)
+    const connected = { status: 'available', state: 'connected' } as const
+    heading('zh', { ...DIAGNOSIS, system: { ...DIAGNOSIS.system, warp: connected } })
+    assert.equal(warpLimitHidden, false)
+    heading('zh', {
+      ...DIAGNOSIS,
+      system: {
+        ...DIAGNOSIS.system,
+        warp: { status: 'unavailable', state: 'unknown', error: 'not-installed' },
+      },
+    })
+    assert.equal(warpLimitHidden, true)
   })
 
-  it('titles the process proxy port and words other candidates as common ports', () => {
+  it('titles every port card by address and tags the process proxy beside it', () => {
     const card = (lang: 'en' | 'zh', candidate: NetworkDiagnosis['localProxyCandidates'][number]) =>
-      texts(
-        (
-          scriptSlice('function candidateCard', 'function routeLabel', lang).candidateCard as (
-            c: unknown,
-          ) => Node
-        )(candidate),
-      )
+      (
+        scriptSlice('function probeLabel(probe)', 'function fillRegion', lang).candidateCard as (
+          c: unknown,
+        ) => Node
+      )(candidate)
     const base = { protocol: 'HTTP', host: '127.0.0.1', port: 10808, reachable: true }
     const matched = card('zh', { ...base, label: 'Common v2rayN SOCKS port', processProxy: 'HTTPS_PROXY' })
-    assert.equal(matched[0], '进程代理（HTTPS_PROXY）')
-    assert.match(matched.join('\n'), /HTTP · 127\.0\.0\.1:10808 · 常见端口：v2rayN SOCKS/)
-    assert.equal(
-      card('en', { ...base, label: 'Common v2rayN SOCKS port', processProxy: 'ALL_PROXY' })[0],
-      'Process proxy (ALL_PROXY)',
+    assert.deepEqual(texts(matched), [
+      '127.0.0.1:10808',
+      'HTTPS_PROXY 指向此端口',
+      '可连接',
+      'HTTP · 常见于 v2rayN',
+    ])
+    assert.match(classes(matched).join(' '), /net-tag/)
+    assert.deepEqual(
+      texts(card('en', { ...base, label: 'Common v2rayN SOCKS port', processProxy: 'ALL_PROXY' })).slice(
+        0,
+        2,
+      ),
+      ['127.0.0.1:10808', 'ALL_PROXY points here'],
     )
-    assert.equal(
-      card('zh', { ...base, label: 'Common Clash HTTP port', port: 7890 })[0],
-      '常见端口：Clash HTTP',
+    const refused = card('zh', {
+      ...base,
+      label: 'Common Clash HTTP port',
+      port: 7890,
+      reachable: false,
+      error: 'ECONNREFUSED',
+    })
+    assert.deepEqual(texts(refused), [
+      '127.0.0.1:7890',
+      '不可连接',
+      'HTTP · 常见于 Clash · 拒绝连接 (ECONNREFUSED)',
+    ])
+    assert.match(classes(refused).join(' '), /chip-fail/)
+    assert.match(
+      texts(card('zh', { ...base, label: 'Host supplied label' })).join('\n'),
+      /HTTP · Host supplied label/,
     )
-    assert.equal(
-      card('en', { ...base, label: 'Common Clash HTTP port', port: 7890 })[0],
-      'Common Clash HTTP port',
+  })
+
+  it('shows a status chip on target cards and keeps route details in the body', () => {
+    const ctx = scriptSlice('function probeLabel(probe)', 'function fillRegion', 'zh', {
+      lang: 'zh',
+      formatTime: (iso: string) => `local(${iso})`,
+      targetStatus: targetProbeStatus,
+    })
+    const card = ctx.targetCard as (t: NetworkDiagnosis['targets'][number]) => Node
+    const reachable = card(DIAGNOSIS.targets[0]!)
+    assert.deepEqual(texts(reachable), [
+      'https://api.example.com/cdn-cgi/trace',
+      '可连接',
+      '路由：',
+      'http://127.0.0.1:7890',
+      ' · HTTP CONNECT',
+      '本机监听端口 127.0.0.1:7890',
+      '缓存 Guard：允许 · US',
+      ' · ',
+      '检查于 ',
+      'local(2026-11-23T09:00:00.000Z)',
+      '',
+    ])
+    const time = (reachable.children[3] as Node).children.find(
+      (child) => (child as Node)?.tag === 'time',
+    ) as Node
+    assert.equal(time.attrs.datetime, '2026-11-23T09:00:00.000Z')
+    assert.equal(time.attrs.title, '2026-11-23T09:00:00.000Z')
+    const direct = texts(
+      card({
+        url: 'https://direct.example.com',
+        proxy: 'direct',
+        guardSupport: 'direct',
+        listener: null,
+        guard: { status: 'not-checked' },
+      }),
     )
-    assert.equal(card('zh', { ...base, label: 'Host supplied label' })[0], 'Host supplied label')
+    assert.deepEqual(direct, ['https://direct.example.com', '未探测', '路由：', '直连', '缓存 Guard：未检查'])
+  })
+
+  it('formats times as local 24-hour time and keeps an unparseable value as is', () => {
+    assert.equal(formatLocalTime('2026-11-23T16:12:44.558Z', 'zh', 'Asia/Shanghai'), '2026-11-24 00:12:44')
+    assert.equal(formatLocalTime('2026-11-23T16:12:44.558Z', 'en', 'UTC'), '2026-11-23 16:12:44')
+    assert.equal(formatLocalTime('2026-11-23T16:00:05.000Z', 'en', 'Asia/Shanghai'), '2026-11-24 00:00:05')
+    assert.equal(formatLocalTime('not a time', 'zh'), 'not a time')
+  })
+
+  it('maps a target to one status chip, with Guard support problems first', () => {
+    const listener = { host: '127.0.0.1', port: 7890 }
+    const cases = [
+      [
+        { guardSupport: 'unsupported', listener: { ...listener, reachable: true } },
+        'status.unsupported',
+        'fail',
+      ],
+      [{ guardSupport: 'invalid', listener: null }, 'status.invalid', 'fail'],
+      [
+        { guardSupport: 'http-connect', listener: { ...listener, reachable: true } },
+        'status.reachable',
+        'ok',
+      ],
+      [
+        { guardSupport: 'http-connect', listener: { ...listener, reachable: false } },
+        'status.notReachable',
+        'fail',
+      ],
+      [{ guardSupport: 'http-connect', listener: null }, 'status.notProbed', ''],
+      [{ guardSupport: 'direct', listener: null }, 'status.notProbed', ''],
+    ] as const
+    for (const [target, key, tone] of cases) assert.deepEqual(targetProbeStatus(target), { key, tone })
   })
 })
