@@ -12,6 +12,7 @@ describe('networkDiagnoseTaskFacts', () => {
         proxy: {
           status: 'available',
           pacEnabled: true,
+          autoDiscoveryEnabled: false,
           protocols: [
             { protocol: 'http', enabled: true, host: '127.0.0.1', port: 7897 },
             { protocol: 'https', enabled: true, host: 'private-proxy.example.com', port: 8080 },
@@ -60,7 +61,13 @@ describe('networkDiagnoseTaskFacts', () => {
       checkedAt: '2026-11-23T01:00:00Z',
       system: {
         warp: { status: 'error', state: 'unknown', error: 'raw private error' },
-        proxy: { status: 'error', pacEnabled: false, protocols: [], error: 'raw private error' },
+        proxy: {
+          status: 'error',
+          pacEnabled: false,
+          autoDiscoveryEnabled: false,
+          protocols: [],
+          error: 'raw private error',
+        },
         dns: { status: 'error', nameservers: [], error: 'raw private error' },
         route: { status: 'error', error: 'raw private error' },
       },
@@ -116,6 +123,21 @@ describe('networkDiagnoseTaskFacts', () => {
     const text = networkDiagnoseTaskFacts(diagnosis).join('\n')
     assert.match(text, /Guard target: proxy invalid/)
     assert.doesNotMatch(text, /http:\/\/redacted|private-location|not-a-date|tester/)
+  })
+
+  it('formats a legacy target-only diagnosis with unavailable system facts', () => {
+    const legacy = {
+      checkedAt: '2026-11-23T01:00:00Z',
+      targets: [{ url: 'https://api.anthropic.com/cdn-cgi/trace', guard: { status: 'not-checked' } }],
+    }
+    const facts = networkDiagnoseTaskFacts(
+      legacy as unknown as Parameters<typeof networkDiagnoseTaskFacts>[0],
+    )
+    const text = facts.join('\n')
+    assert.match(text, /WARP: unavailable, unknown/)
+    assert.match(text, /macOS system proxy: unavailable/)
+    assert.match(text, /api\.anthropic\.com: proxy not reported/)
+    assert.match(text, /Guard not-checked, not checked yet/)
   })
 
   it('preserves canonical Guard reason codes and rejects inherited object keys', async () => {

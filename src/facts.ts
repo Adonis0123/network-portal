@@ -47,11 +47,18 @@ export function networkDiagnoseTaskFacts(d: NetworkDiagnosis): string[] {
   const checked = (value: string | undefined) =>
     value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : ''
   const out = [`diagnosed: ${d.checkedAt} (offline; no trace sent)`]
-  const warp = d.system.warp
+  // A host can retain the original target-only Runtime DTO while the portal gains system probes.
+  const system = d.system || {
+    warp: { status: 'unavailable', state: 'unknown' },
+    proxy: { status: 'unavailable', pacEnabled: false, autoDiscoveryEnabled: false, protocols: [] },
+    dns: { status: 'unavailable', nameservers: [] },
+    route: { status: 'unavailable' },
+  }
+  const warp = system.warp
   out.push(
     `WARP: ${warp.status}, ${warp.state}${warp.networkHealthy === undefined ? '' : `; Network healthy ${warp.networkHealthy ? 'yes' : 'no'}`}${code(warp.error) ? `; ${code(warp.error)}` : ''}; Connected does not mean all traffic uses WARP`,
   )
-  const proxy = d.system.proxy
+  const proxy = system.proxy
   const protocols = proxy.protocols
     .map((p) => {
       const host = p.host && local(p.host) ? p.host : p.host ? 'redacted' : ''
@@ -65,16 +72,16 @@ export function networkDiagnoseTaskFacts(d: NetworkDiagnosis): string[] {
   out.push(
     `macOS system proxy: ${proxy.status}${protocols ? `; ${protocols}` : ''}${pac}${proxy.exceptionCount === undefined ? '' : `; ${proxy.exceptionCount} exceptions (names omitted)`}${code(proxy.error) ? `; ${code(proxy.error)}` : ''}`,
   )
-  const nameservers = d.system.dns.nameservers.filter(ip)
+  const nameservers = system.dns.nameservers.filter(ip)
   out.push(
-    `DNS default resolver: ${d.system.dns.status}${nameservers.length ? `; nameservers ${nameservers.join(', ')}` : '; no nameservers returned'}${code(d.system.dns.error) ? `; ${code(d.system.dns.error)}` : ''}; search domains omitted`,
+    `DNS default resolver: ${system.dns.status}${nameservers.length ? `; nameservers ${nameservers.join(', ')}` : '; no nameservers returned'}${code(system.dns.error) ? `; ${code(system.dns.error)}` : ''}; search domains omitted`,
   )
-  const route = d.system.route
+  const route = system.route
   const iface = route.interface && /^[A-Za-z0-9_.-]{1,64}$/.test(route.interface) ? route.interface : ''
   out.push(
     `Default route: ${route.status}${ip(route.gateway) ? `; gateway ${route.gateway}` : ''}${iface ? `; interface ${iface}` : ''}${code(route.error) ? `; ${code(route.error)}` : ''}`,
   )
-  for (const p of d.localProxyCandidates) {
+  for (const p of d.localProxyCandidates || []) {
     out.push(
       `Local proxy candidate ${p.label}: ${p.protocol} TCP ${local(p.host) ? p.host : 'redacted'}:${p.port} ${p.reachable ? 'reachable' : 'not reachable'}${code(p.error) ? ` (${code(p.error)})` : ''}; a port probe does not identify the process or prove upstream availability`,
     )
@@ -87,9 +94,9 @@ export function networkDiagnoseTaskFacts(d: NetworkDiagnosis): string[] {
     } catch {
       // Keep the generic target name.
     }
-    let selectedProxy = 'invalid'
+    let selectedProxy = t.proxy ? 'invalid' : 'not reported'
     if (t.proxy === 'direct') selectedProxy = 'direct'
-    else if (t.proxy !== 'invalid')
+    else if (t.proxy && t.proxy !== 'invalid')
       try {
         const parsed = new URL(t.proxy.includes('://') ? t.proxy : `http://${t.proxy}`)
         const bare = parsed.hostname.startsWith('[') ? parsed.hostname.slice(1, -1) : parsed.hostname

@@ -290,7 +290,7 @@ describe('Network page controller', () => {
       json: async () => data,
     })
     const ctx: {
-      api?: (path: string, body: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>
+      api?: (path: string, body: unknown, signal?: AbortSignal) => Promise<unknown>
     } = {}
     Object.assign(ctx, {
       BOOT: { token: 'old-token', basePath: '', tokenHeader: 'x-test-token' },

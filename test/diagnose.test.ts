@@ -84,7 +84,7 @@ describe('diagnoseNetwork', () => {
       if (item.probe) {
         assert.equal(
           probes.filter((p) => p.port === item.probe!.port).length,
-          item.probe.port === 10808 ? 2 : 1,
+          Number(item.probe.port) === 10808 ? 2 : 1,
         )
         assert.deepEqual(d.targets[0]!.listener, { ...item.probe, reachable: true })
         assert.ok(probes.every((p) => p.timeout === 700))
