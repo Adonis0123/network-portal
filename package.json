@@ -1,0 +1,50 @@
+{
+  "name": "network-portal",
+  "version": "0.1.0",
+  "description": "Offline network diagnosis and a host-embeddable bilingual Network page.",
+  "license": "MIT",
+  "author": "Adonis0123 (https://github.com/Adonis0123)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Adonis0123/network-portal.git"
+  },
+  "homepage": "https://github.com/Adonis0123/network-portal#readme",
+  "bugs": "https://github.com/Adonis0123/network-portal/issues",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "bin": {
+    "network-portal": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./proxy": {
+      "types": "./dist/proxy.d.ts",
+      "default": "./dist/proxy.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "lint": "biome check src test",
+    "leak-check": "sh scripts/leak-check.sh"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@types/node": "^22.18.0",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "pnpm@10.15.0"
+}
