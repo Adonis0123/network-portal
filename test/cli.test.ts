@@ -68,4 +68,37 @@ describe('network-portal diagnose CLI', () => {
     assert.equal(called, false)
     assert.equal(error, 'usage: network-portal diagnose [--json]')
   })
+
+  it('explains the Linux system proxy and marks the process proxy port in the text view', async () => {
+    const d = structuredClone(DIAGNOSIS)
+    d.targets = []
+    d.platform = 'linux'
+    d.system.proxy = {
+      status: 'unavailable',
+      pacEnabled: false,
+      autoDiscoveryEnabled: false,
+      protocols: [],
+      error: 'not-applicable',
+    }
+    d.localProxyCandidates[2]!.processProxy = 'HTTPS_PROXY'
+    let output = ''
+    await runCli(['diagnose'], {
+      diagnose: async () => d,
+      write: (text) => {
+        output = text
+      },
+    })
+    assert.match(output, /System proxy: not applicable\. .*HTTPS_PROXY \/ ALL_PROXY/)
+    assert.match(output, /10808 not reachable \(timeout\); HTTPS_PROXY points here\./)
+    assert.doesNotMatch(output, /macOS|unavailable \(not-applicable\)/)
+    d.platform = 'darwin'
+    d.system.proxy = structuredClone(DIAGNOSIS.system.proxy)
+    await runCli(['diagnose'], {
+      diagnose: async () => d,
+      write: (text) => {
+        output = text
+      },
+    })
+    assert.match(output, /^macOS system proxy:$/m)
+  })
 })

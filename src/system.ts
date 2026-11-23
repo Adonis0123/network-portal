@@ -1,6 +1,7 @@
-// Read-only macOS network facts. Commands use fixed arguments, short timeouts and output caps.
+// Read-only macOS and Linux network facts. Commands and files use fixed names, short timeouts and output caps.
 // Raw output, stderr and error messages never cross this module's boundary.
 import { execFile } from 'node:child_process'
+import { open } from 'node:fs/promises'
 import { isIP } from 'node:net'
 import { loopbackHost } from './loopback.ts'
 
@@ -38,9 +39,19 @@ export type NetworkCommandRunner = (
   opts: { timeoutMs: number; maxOutput: number },
 ) => Promise<string>
 
+export type NetworkFileReader = (path: string, opts: { maxBytes: number }) => Promise<string>
+
 export interface NetworkSystemDeps {
   platform?: NodeJS.Platform
   run?: NetworkCommandRunner
+  readFile?: NetworkFileReader
+}
+
+/** The platform family whose probes produced a NetworkSystemInfo. */
+export type NetworkPlatform = 'darwin' | 'linux' | 'other'
+
+export function networkPlatform(platform: NodeJS.Platform = process.platform): NetworkPlatform {
+  return platform === 'darwin' || platform === 'linux' ? platform : 'other'
 }
 
 const TIMEOUT_MS = 900
@@ -77,16 +88,24 @@ const runCommand: NetworkCommandRunner = (command, args, opts) =>
     )
   })
 
-async function bounded(run: NetworkCommandRunner, command: string, args: readonly string[]): Promise<string> {
+const readFileHead: NetworkFileReader = async (path, opts) => {
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.alloc(opts.maxBytes)
+    const { bytesRead } = await handle.read(buffer, 0, opts.maxBytes, 0)
+    return buffer.toString('utf8', 0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
+async function bounded(start: () => Promise<string>): Promise<string> {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('timeout')), TIMEOUT_MS)
   })
   try {
-    const output = await Promise.race([
-      run(command, args, { timeoutMs: TIMEOUT_MS, maxOutput: MAX_OUTPUT }),
-      timeout,
-    ])
+    const output = await Promise.race([start(), timeout])
     return output.slice(0, MAX_OUTPUT)
   } finally {
     if (timer) clearTimeout(timer)
@@ -186,6 +205,33 @@ export function parseDns(output: string): string[] {
   return out
 }
 
+/** Nameserver addresses from resolv.conf; comments, search domains and options are never returned. */
+export function parseResolvConf(output: string): string[] {
+  const out: string[] = []
+  for (const match of output.matchAll(/^[ \t]*nameserver[ \t]+(\S+)/gm)) {
+    const address = match[1]!
+    // A zone id (fe80::1%eth0) passes isIP but the AI facts drop it, so the page and facts would disagree.
+    if (isIP(address) && !address.includes('%') && !out.includes(address)) out.push(address)
+    if (out.length === 8) break
+  }
+  if (!out.length) throw invalidOutput()
+  return out
+}
+
+/** The first `ip route show default` entry; a missing `via` is a point-to-point default with no gateway. */
+export function parseLinuxDefaultRoute(
+  output: string,
+): Pick<NetworkSystemInfo['route'], 'interface' | 'gateway'> {
+  // A multipath default puts `via`/`dev` on indented `nexthop` lines under the `default` line.
+  const line = /^default\b.*(?:\n[ \t]+.*)*/m.exec(output)?.[0]
+  if (!line) throw invalidOutput()
+  const iface = /\sdev\s+([A-Za-z0-9_.-]{1,64})(?:\s|$)/.exec(line)?.[1]
+  const rawGateway = /\svia\s+(\S+)/.exec(line)?.[1]
+  const gateway = rawGateway && isIP(rawGateway) ? rawGateway : undefined
+  if (!iface && !gateway) throw invalidOutput()
+  return { ...(iface ? { interface: iface } : {}), ...(gateway ? { gateway } : {}) }
+}
+
 export function parseDefaultRoute(output: string): Pick<NetworkSystemInfo['route'], 'interface' | 'gateway'> {
   const iface = /^\s*interface:\s*([A-Za-z0-9_.-]{1,64})\s*$/m.exec(output)?.[1]
   const rawGateway = /^\s*gateway:\s*(\S+)\s*$/m.exec(output)?.[1]
@@ -194,19 +240,22 @@ export function parseDefaultRoute(output: string): Pick<NetworkSystemInfo['route
   return { ...(iface ? { interface: iface } : {}), ...(gateway ? { gateway } : {}) }
 }
 
-/** All four reads run together. A missing command, timeout, bad output or failed item changes only that item. */
+/**
+ * All four reads run together. A missing command, timeout, bad output or failed item changes only that item.
+ * Linux has no single system proxy setting, so its proxy item is `not-applicable` rather than a failed read.
+ */
 export async function readNetworkSystem(deps: NetworkSystemDeps = {}): Promise<NetworkSystemInfo> {
-  const platform = deps.platform ?? process.platform
-  if (platform !== 'darwin') return unavailable()
+  const platform = networkPlatform(deps.platform)
+  if (platform === 'other') return unavailable()
   const run = deps.run ?? runCommand
+  const readFile = deps.readFile ?? readFileHead
   const read = async <T>(
-    command: string,
-    args: readonly string[],
+    start: () => Promise<string>,
     empty: T,
     parse: (output: string) => T,
   ): Promise<T & { status: NetworkProbeStatus; error?: string }> => {
     try {
-      return { status: 'available', ...parse(await bounded(run, command, args)) }
+      return { status: 'available', ...parse(await bounded(start)) }
     } catch (err) {
       const failure = errorCode(err)
       return {
@@ -216,16 +265,30 @@ export async function readNetworkSystem(deps: NetworkSystemDeps = {}): Promise<N
       }
     }
   }
-  const [warp, proxy, dns, route] = await Promise.all([
-    read('warp-cli', ['status'], { state: 'unknown' as const }, parseWarpStatus),
+  const command = (name: string, args: readonly string[]) => () =>
+    run(name, args, { timeoutMs: TIMEOUT_MS, maxOutput: MAX_OUTPUT })
+  const warp = read(command('warp-cli', ['status']), { state: 'unknown' as const }, parseWarpStatus)
+  if (platform === 'linux') {
+    const [warpInfo, dns, route] = await Promise.all([
+      warp,
+      read(
+        () => readFile('/etc/resolv.conf', { maxBytes: MAX_OUTPUT }),
+        { nameservers: [] },
+        (output) => ({ nameservers: parseResolvConf(output) }),
+      ),
+      read(command('ip', ['route', 'show', 'default']), {}, parseLinuxDefaultRoute),
+    ])
+    return { warp: warpInfo, proxy: unavailable('not-applicable').proxy, dns, route }
+  }
+  const [warpInfo, proxy, dns, route] = await Promise.all([
+    warp,
     read(
-      'scutil',
-      ['--proxy'],
+      command('scutil', ['--proxy']),
       { protocols: [], pacEnabled: false, autoDiscoveryEnabled: false },
       parseSystemProxy,
     ),
-    read('scutil', ['--dns'], { nameservers: [] }, (output) => ({ nameservers: parseDns(output) })),
-    read('route', ['-n', 'get', 'default'], {}, parseDefaultRoute),
+    read(command('scutil', ['--dns']), { nameservers: [] }, (output) => ({ nameservers: parseDns(output) })),
+    read(command('route', ['-n', 'get', 'default']), {}, parseDefaultRoute),
   ])
-  return { warp, proxy, dns, route }
+  return { warp: warpInfo, proxy, dns, route }
 }

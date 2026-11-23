@@ -47,6 +47,8 @@ export function networkDiagnoseTaskFacts(d: NetworkDiagnosis): string[] {
   const checked = (value: string | undefined) =>
     value && !Number.isNaN(Date.parse(value)) ? new Date(value).toISOString() : ''
   const out = [`diagnosed: ${d.checkedAt} (offline; no trace sent)`]
+  const platform = d.platform === 'darwin' ? 'macOS' : d.platform === 'linux' ? 'Linux' : ''
+  if (platform) out.push(`Platform: ${platform}`)
   // A host can retain the original target-only Runtime DTO while the portal gains system probes.
   const system = d.system || {
     warp: { status: 'unavailable', state: 'unknown' },
@@ -69,9 +71,14 @@ export function networkDiagnoseTaskFacts(d: NetworkDiagnosis): string[] {
     proxy.status === 'available'
       ? `; PAC ${proxy.pacEnabled ? 'on' : 'off'}; automatic proxy discovery ${proxy.autoDiscoveryEnabled ? 'on' : 'off'}; PAC URL omitted`
       : ''
-  out.push(
-    `macOS system proxy: ${proxy.status}${protocols ? `; ${protocols}` : ''}${pac}${proxy.exceptionCount === undefined ? '' : `; ${proxy.exceptionCount} exceptions (names omitted)`}${code(proxy.error) ? `; ${code(proxy.error)}` : ''}`,
-  )
+  if (proxy.error === 'not-applicable')
+    out.push(
+      `System proxy: not applicable${platform ? ` on ${platform}` : ''}; there is no single system proxy setting, so process proxies come from HTTPS_PROXY / ALL_PROXY`,
+    )
+  else
+    out.push(
+      `${platform === 'macOS' ? 'macOS system proxy' : 'System proxy'}: ${proxy.status}${protocols ? `; ${protocols}` : ''}${pac}${proxy.exceptionCount === undefined ? '' : `; ${proxy.exceptionCount} exceptions (names omitted)`}${code(proxy.error) ? `; ${code(proxy.error)}` : ''}`,
+    )
   const nameservers = system.dns.nameservers.filter(ip)
   out.push(
     `DNS default resolver: ${system.dns.status}${nameservers.length ? `; nameservers ${nameservers.join(', ')}` : '; no nameservers returned'}${code(system.dns.error) ? `; ${code(system.dns.error)}` : ''}; search domains omitted`,
@@ -83,7 +90,7 @@ export function networkDiagnoseTaskFacts(d: NetworkDiagnosis): string[] {
   )
   for (const p of d.localProxyCandidates || []) {
     out.push(
-      `Local proxy candidate ${p.label}: ${p.protocol} TCP ${local(p.host) ? p.host : 'redacted'}:${p.port} ${p.reachable ? 'reachable' : 'not reachable'}${code(p.error) ? ` (${code(p.error)})` : ''}; a port probe does not identify the process or prove upstream availability`,
+      `Local proxy candidate ${p.label}: ${p.protocol} TCP ${local(p.host) ? p.host : 'redacted'}:${p.port} ${p.reachable ? 'reachable' : 'not reachable'}${code(p.error) ? ` (${code(p.error)})` : ''}${p.processProxy === 'HTTPS_PROXY' || p.processProxy === 'ALL_PROXY' ? `; this is the port ${p.processProxy} points at` : ''}; a port probe does not identify the process or prove upstream availability`,
     )
   }
   for (const t of d.targets) {

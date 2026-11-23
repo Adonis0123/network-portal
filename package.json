@@ -1,6 +1,6 @@
 {
   "name": "network-portal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Offline network diagnosis and a host-embeddable bilingual Network page.",
   "license": "MIT",
   "author": "Adonis0123 (https://github.com/Adonis0123)",

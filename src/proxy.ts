@@ -55,8 +55,16 @@ export function proxyFor(url: string, env: NetworkEnvironment): string | null {
     if (entry.port && entry.port !== port) continue
     if (host === entry.host || host.endsWith(`.${entry.host}`)) return null
   }
-  const value = env.HTTPS_PROXY || env.https_proxy || env.ALL_PROXY || env.all_proxy
-  return value ? value.trim() : null
+  return processProxy(env)?.value ?? null
+}
+
+/** The process-wide proxy variable that wins, before any per-target `NO_PROXY` exclusion. */
+export function processProxy(
+  env: NetworkEnvironment,
+): { variable: 'HTTPS_PROXY' | 'ALL_PROXY'; value: string } | null {
+  const https = env.HTTPS_PROXY || env.https_proxy
+  const value = https || env.ALL_PROXY || env.all_proxy
+  return value ? { variable: https ? 'HTTPS_PROXY' : 'ALL_PROXY', value: value.trim() } : null
 }
 
 /** The selected route safe to show: scheme, hostname and port only, or `direct`; never credentials or a path. */

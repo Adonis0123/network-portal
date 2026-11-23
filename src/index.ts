@@ -15,12 +15,15 @@ export {
   type NetworkPageOptions,
   renderNetworkPage,
 } from './page.ts'
-export { type NetworkEnvironment, proxyFor, redactedProxy, routeLabel } from './proxy.ts'
+export { type NetworkEnvironment, processProxy, proxyFor, redactedProxy, routeLabel } from './proxy.ts'
 export {
   type NetworkCommandRunner,
+  type NetworkFileReader,
+  type NetworkPlatform,
   type NetworkProbeStatus,
   type NetworkProxyProtocol,
   type NetworkSystemDeps,
   type NetworkSystemInfo,
+  networkPlatform,
   readNetworkSystem,
 } from './system.ts'

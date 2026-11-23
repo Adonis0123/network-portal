@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import { runInNewContext } from 'node:vm'
 import type { NetworkDiagnosis } from '../src/diagnose.ts'
 import { networkDiagnoseTaskFacts } from '../src/facts.ts'
+import { renderNetworkPage } from '../src/page.ts'
 import { NETWORK_PAGE_SCRIPT, networkPageController } from '../src/page-script.ts'
 import { DIAGNOSIS } from './fixtures.ts'
 
@@ -11,6 +12,63 @@ async function controller(api: (path: string, body: unknown) => Promise<unknown>
   Object.assign(ctx, { AbortController })
   runInNewContext(`${networkPageController.toString()}; this.make = networkPageController`, ctx)
   return ctx.make!({ api, facts: networkDiagnoseTaskFacts, version: '1.2.3', lang: 'en' })
+}
+
+type Node = { tag: string; attrs: Record<string, unknown>; children: unknown[] }
+
+/** The page's own message table and translator, so assertions see the strings users see. */
+function translator(lang: 'en' | 'zh') {
+  const page = renderNetworkPage({ basePath: '', token: 'x' })
+  const messages = JSON.parse(/id="network-i18n">(.*?)<\/script>/.exec(page)![1]!)
+  return (key: string, vars: Record<string, unknown> = {}) => {
+    let value: string = messages[lang][key] || messages.en[key] || key
+    for (const [name, replacement] of Object.entries(vars))
+      value = value.split(`{${name}}`).join(String(replacement))
+    return value
+  }
+}
+
+function scriptSlice(from: string, to: string, lang: 'en' | 'zh', extra: Record<string, unknown> = {}) {
+  const start = NETWORK_PAGE_SCRIPT.indexOf(from)
+  const end = NETWORK_PAGE_SCRIPT.indexOf(to, start)
+  const ctx: Record<string, unknown> = {
+    t: translator(lang),
+    h: (tag: string, attrs: Record<string, unknown>, ...children: unknown[]): Node => ({
+      tag,
+      attrs: attrs || {},
+      children: children.flat(),
+    }),
+    ...extra,
+  }
+  runInNewContext(`${NETWORK_PAGE_SCRIPT.slice(start, end)}`, ctx)
+  return ctx
+}
+
+function texts(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return typeof node === 'string' ? [node] : []
+  const n = node as Node
+  return [...(typeof n.attrs.text === 'string' ? [n.attrs.text] : []), ...n.children.flatMap(texts)]
+}
+
+function classes(node: unknown): string[] {
+  if (!node || typeof node !== 'object') return []
+  const n = node as Node
+  return [String(n.attrs.class ?? ''), ...n.children.flatMap(classes)]
+}
+
+const LINUX: NetworkDiagnosis = {
+  ...DIAGNOSIS,
+  platform: 'linux',
+  system: {
+    ...DIAGNOSIS.system,
+    proxy: {
+      status: 'unavailable',
+      pacEnabled: false,
+      autoDiscoveryEnabled: false,
+      protocols: [],
+      error: 'not-applicable',
+    },
+  },
 }
 
 function deferred<T>() {
@@ -322,5 +380,91 @@ describe('Network page controller', () => {
     await confirming
     assert.equal(asks, 1)
     assert.equal(c.state.ask, null)
+  })
+
+  it('shows a not-applicable Linux system proxy as neutral "not applicable", not unavailable', () => {
+    for (const [lang, label, unavailable] of [
+      ['zh', '不适用', '不可用'],
+      ['en', 'Not applicable', 'Unavailable'],
+    ] as const) {
+      const ctx = scriptSlice('function probeLabel(probe)', 'function candidateCard', lang)
+      const render = ctx.renderOverview as (d: NetworkDiagnosis) => Node[]
+      const details = ctx.renderSystemDetails as (d: NetworkDiagnosis) => Node[]
+      const card = render(LINUX)[1]!
+      const text = texts(card).join('\n')
+      assert.ok(texts(card).filter((value) => value === label).length >= 2, text)
+      assert.match(text, /HTTPS_PROXY \/ ALL_PROXY/)
+      assert.doesNotMatch(text, new RegExp(`${unavailable}|not-applicable`))
+      assert.doesNotMatch(classes(card).join(' '), /fail|warn|err/)
+      const rows = details(LINUX)
+      assert.equal(rows.length, 1)
+      assert.match(
+        texts(rows[0]).join(''),
+        lang === 'zh' ? /Linux 没有统一的系统代理设置/ : /Linux has no single/,
+      )
+      assert.doesNotMatch(classes(rows[0]).join(' '), /fail|warn|err/)
+    }
+  })
+
+  it('titles the system proxy section by platform and stays neutral for older DTOs', () => {
+    const heading = (lang: 'en' | 'zh', diagnosis: NetworkDiagnosis | null) => {
+      const elements = new Map<string, Record<string, unknown>>()
+      const ctx = scriptSlice('function renderMain()', 'function renderAsk()', lang, {
+        BOOT: { lang, title: 'Network' },
+        lang,
+        controller: { state: { diagnosis, loading: false, error: null } },
+        document: { documentElement: {}, title: '' },
+        $: (id: string) => {
+          if (!elements.has(id))
+            elements.set(id, { textContent: '', append() {}, setAttribute() {} } as Record<string, unknown>)
+          return elements.get(id)
+        },
+        placeholder: () => ({}),
+        fillRegion: () => {},
+        clear: () => {},
+        renderOverview: () => [],
+        renderSystemDetails: () => [],
+        candidateCard: () => ({}),
+        targetCard: () => ({}),
+      })
+      ;(ctx.renderMain as () => void)()
+      return elements.get('system-heading')!.textContent
+    }
+    const legacy = { ...DIAGNOSIS }
+    delete legacy.platform
+    assert.equal(heading('zh', { ...DIAGNOSIS, platform: 'darwin' }), 'macOS 系统代理')
+    assert.equal(heading('en', { ...DIAGNOSIS, platform: 'darwin' }), 'macOS system proxy')
+    assert.equal(heading('zh', LINUX), '系统代理')
+    assert.equal(heading('en', LINUX), 'System proxy')
+    assert.equal(heading('zh', legacy), '系统代理')
+    assert.equal(heading('zh', null), '系统代理')
+  })
+
+  it('titles the process proxy port and words other candidates as common ports', () => {
+    const card = (lang: 'en' | 'zh', candidate: NetworkDiagnosis['localProxyCandidates'][number]) =>
+      texts(
+        (
+          scriptSlice('function candidateCard', 'function routeLabel', lang).candidateCard as (
+            c: unknown,
+          ) => Node
+        )(candidate),
+      )
+    const base = { protocol: 'HTTP', host: '127.0.0.1', port: 10808, reachable: true }
+    const matched = card('zh', { ...base, label: 'Common v2rayN SOCKS port', processProxy: 'HTTPS_PROXY' })
+    assert.equal(matched[0], '进程代理（HTTPS_PROXY）')
+    assert.match(matched.join('\n'), /HTTP · 127\.0\.0\.1:10808 · 常见端口：v2rayN SOCKS/)
+    assert.equal(
+      card('en', { ...base, label: 'Common v2rayN SOCKS port', processProxy: 'ALL_PROXY' })[0],
+      'Process proxy (ALL_PROXY)',
+    )
+    assert.equal(
+      card('zh', { ...base, label: 'Common Clash HTTP port', port: 7890 })[0],
+      '常见端口：Clash HTTP',
+    )
+    assert.equal(
+      card('en', { ...base, label: 'Common Clash HTTP port', port: 7890 })[0],
+      'Common Clash HTTP port',
+    )
+    assert.equal(card('zh', { ...base, label: 'Host supplied label' })[0], 'Host supplied label')
   })
 })

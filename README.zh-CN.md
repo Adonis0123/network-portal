@@ -6,13 +6,16 @@
 
 ## 功能
 
-- 用有界只读命令读取 WARP、macOS 系统代理、默认 DNS resolver 和默认路由。
-- 通过 TCP 探测三个常见 loopback 代理端口，以及选中路由的 loopback listener。
+- 用有界只读命令读取 WARP、系统代理、默认 DNS resolver 和默认路由。
+  - macOS：`warp-cli status`、`scutil --proxy`、`scutil --dns` 和 `route -n get default`。
+  - Linux：`warp-cli status`、`ip route show default` 和 `/etc/resolv.conf` 的 `nameserver` 行。Linux 没有统一的系统代理设置，代理项返回 `error: 'not-applicable'`；进程代理看 `HTTPS_PROXY` / `ALL_PROXY`。
+  - 其他平台各项都返回 unavailable。`NetworkDiagnosis.platform`（`'darwin' | 'linux' | 'other'`）标明走的是哪一套。
+- 通过 TCP 探测三个常见 loopback 代理端口，以及选中路由的 loopback listener。`HTTPS_PROXY` / `ALL_PROXY` 指向的常见端口会带上 `processProxy` 标记。
 - 组合宿主编入的结构化 target 和缓存 Guard facts。
 - 选择并脱敏 `HTTPS_PROXY` / `ALL_PROXY` 路由，支持 `NO_PROXY`。
 - 生成完整中英文页面，包含加载、空数据、错误状态、AI 实际 prompt 预览和二次核对。
 
-诊断全程离线，不发在线 trace、不写缓存、不改网络设置，也不读取宿主账号或配置文件。TCP listener 可连接不代表代理协议或上游网络可用。
+诊断全程离线，不发在线 trace、不写缓存、不改网络设置，也不读取宿主账号或凭据文件。唯一读取的文件是 Linux 上的 `/etc/resolv.conf`，最多读 32 KiB，只保留 nameserver 地址。TCP listener 可连接不代表代理协议或上游网络可用。
 
 ## 安装与构建
 
@@ -40,7 +43,7 @@ const diagnosis = await diagnoseNetwork({
 })
 ```
 
-宿主负责发现 target 和读取 Guard 缓存，只传 `{ url, guard? }`。库本身不会发现账号或打开缓存。诊断 DTO 只保留 target 的 origin 和有界 Guard 字段，并把错误映射到白名单原因码。测试可通过 `now`、`probe` 和 `system.run` 注入确定性 fake。
+宿主负责发现 target 和读取 Guard 缓存，只传 `{ url, guard? }`。库本身不会发现账号或打开缓存。诊断 DTO 只保留 target 的 origin 和有界 Guard 字段，并把错误映射到白名单原因码。测试可通过 `now`、`probe`、`system.platform`、`system.run` 和 `system.readFile` 注入确定性 fake。
 
 根入口导出 `readNetworkSystem`、`diagnoseNetwork`、`probeListener`、`proxyFor`、`redactedProxy`、`routeLabel`、`networkDiagnoseTaskFacts`、`renderNetworkPage` 及 DTO 类型。
 

@@ -1,7 +1,13 @@
 import { createConnection } from 'node:net'
 import { loopbackHosts } from './loopback.ts'
-import { type NetworkEnvironment, proxyFor, routeLabel } from './proxy.ts'
-import { type NetworkSystemDeps, type NetworkSystemInfo, readNetworkSystem } from './system.ts'
+import { type NetworkEnvironment, processProxy, proxyFor, redactedProxy, routeLabel } from './proxy.ts'
+import {
+  type NetworkPlatform,
+  type NetworkSystemDeps,
+  type NetworkSystemInfo,
+  networkPlatform,
+  readNetworkSystem,
+} from './system.ts'
 
 export type NetworkGuardStatus = 'ok' | 'blocked' | 'unknown' | 'not-checked'
 
@@ -56,10 +62,14 @@ export interface NetworkLocalProxyCandidate {
   port: number
   reachable: boolean
   error?: string
+  /** Set when this loopback port is the one HTTPS_PROXY or ALL_PROXY points at; `protocol` is then its scheme. */
+  processProxy?: 'HTTPS_PROXY' | 'ALL_PROXY'
 }
 
 export interface NetworkDiagnosis {
   checkedAt: string
+  /** Absent in DTOs from older versions; consumers fall back to platform-neutral wording. */
+  platform?: NetworkPlatform
   system: NetworkSystemInfo
   localProxyCandidates: NetworkLocalProxyCandidate[]
   targets: {
@@ -80,10 +90,26 @@ export interface DiagnoseNetworkOptions {
 }
 
 const LOCAL_PROXY_CANDIDATES = [
-  { label: 'Clash mixed', protocol: 'HTTP / SOCKS', port: 7897 },
-  { label: 'Clash HTTP', protocol: 'HTTP', port: 7890 },
-  { label: 'v2rayN SOCKS', protocol: 'SOCKS', port: 10808 },
+  { label: 'Common Clash Verge mixed port', protocol: 'HTTP / SOCKS', port: 7897 },
+  { label: 'Common Clash HTTP port', protocol: 'HTTP', port: 7890 },
+  { label: 'Common v2rayN SOCKS port', protocol: 'SOCKS', port: 10808 },
 ] as const
+
+/** The loopback port the process proxy names explicitly, read from its redacted form only. */
+function processProxyPort(env: NetworkEnvironment) {
+  const selected = processProxy(env)
+  const route = redactedProxy(selected?.value ?? null)
+  if (!selected || route === 'direct' || route === 'invalid') return null
+  const parsed = new URL(route)
+  const host = parsed.hostname.startsWith('[') ? parsed.hostname.slice(1, -1) : parsed.hostname
+  // Candidates are probed on 127.0.0.1 only; another loopback address would label a port that was not checked.
+  if (!loopbackHosts(host).includes('127.0.0.1') || !parsed.port) return null
+  return {
+    variable: selected.variable,
+    port: Number(parsed.port),
+    protocol: parsed.protocol.slice(0, -1).toUpperCase(),
+  }
+}
 
 function safeCode(error: string | undefined): string | undefined {
   return error && /^[A-Za-z0-9_-]{1,40}$/.test(error) ? error : error ? 'failed' : undefined
@@ -156,12 +182,18 @@ async function probeResult(probe: ListenerProbe, host: string, port: number) {
 export async function diagnoseNetwork(opts: DiagnoseNetworkOptions): Promise<NetworkDiagnosis> {
   const probe = opts.probe ?? probeListener
   const system = readNetworkSystem(opts.system)
+  const configured = processProxyPort(opts.env)
   const localProxyCandidates = Promise.all(
-    LOCAL_PROXY_CANDIDATES.map(async (candidate) => ({
-      ...candidate,
-      host: '127.0.0.1',
-      ...(await probeResult(probe, '127.0.0.1', candidate.port)),
-    })),
+    LOCAL_PROXY_CANDIDATES.map(async (candidate): Promise<NetworkLocalProxyCandidate> => {
+      const match = configured?.port === candidate.port ? configured : null
+      return {
+        ...candidate,
+        ...(match ? { protocol: match.protocol } : {}),
+        host: '127.0.0.1',
+        ...(await probeResult(probe, '127.0.0.1', candidate.port)),
+        ...(match ? { processProxy: match.variable } : {}),
+      }
+    }),
   )
   const targets = await Promise.all(
     opts.targets.map(async (target): Promise<NetworkDiagnosis['targets'][number]> => {
@@ -205,6 +237,7 @@ export async function diagnoseNetwork(opts: DiagnoseNetworkOptions): Promise<Net
   )
   return {
     checkedAt: (opts.now?.() ?? new Date()).toISOString(),
+    platform: networkPlatform(opts.system?.platform),
     system: await system,
     localProxyCandidates: await localProxyCandidates,
     targets,

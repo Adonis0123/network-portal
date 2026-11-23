@@ -211,6 +211,7 @@ function placeholder() {
   return h('div', { class: 'panel net-placeholder', 'aria-busy': 'true' }, h('span', { class: 'sk sk-line w70' }), h('span', { class: 'sk sk-line w50' }));
 }
 function probeLabel(probe) {
+  if (probe.error === 'not-applicable') return t('notApplicable');
   return probe.status === 'available' ? '' : t(probe.status === 'unavailable' ? 'unavailable' : 'error') + (probe.error ? ' · ' + probe.error : '');
 }
 function overviewCard(label, value, detail, chipText, chipClass) {
@@ -226,19 +227,21 @@ function renderOverview(diagnosis) {
   const warpHealth = warp.networkHealthy === undefined ? '' : t('networkHealthy') + ': ' + t(warp.networkHealthy ? 'healthy' : 'unhealthy');
   const enabledCount = system.proxy.protocols.filter((p) => p.enabled).length + (system.proxy.pacEnabled ? 1 : 0) + (system.proxy.autoDiscoveryEnabled ? 1 : 0);
   const proxyValue = system.proxy.status !== 'available' ? probeLabel(system.proxy) : enabledCount ? t('proxyEnabled', { count: enabledCount }) : t('proxyDisabled');
-  const proxyDetail = system.proxy.exceptionCount === undefined ? probeLabel(system.proxy) : t('proxyExceptions', { count: system.proxy.exceptionCount });
+  const proxyNotApplicable = system.proxy.error === 'not-applicable';
+  const proxyDetail = proxyNotApplicable ? t('proxyNotApplicableShort') : system.proxy.exceptionCount === undefined ? probeLabel(system.proxy) : t('proxyExceptions', { count: system.proxy.exceptionCount });
   const dnsValue = system.dns.nameservers.length ? system.dns.nameservers.join(', ') : system.dns.status === 'available' ? t('dnsNone') : probeLabel(system.dns);
   const routeValue = system.route.gateway || (system.route.status === 'available' ? t('routeNone') : probeLabel(system.route));
   const routeDetail = system.route.interface ? t('interface') + ': ' + system.route.interface : probeLabel(system.route);
   return [
     overviewCard(t('warp'), warp.status === 'available' ? warpState : probeLabel(warp), warpHealth || probeLabel(warp), warp.status === 'available' ? warpState : t(warp.status), warp.state === 'connected' && warp.status === 'available' && warp.networkHealthy !== false ? 'chip-ok' : ''),
-    overviewCard(t('systemProxy'), proxyValue, proxyDetail, system.proxy.status === 'available' ? t(enabledCount ? 'on' : 'off') : t(system.proxy.status), enabledCount && system.proxy.status === 'available' ? 'chip-ok' : ''),
+    overviewCard(t('systemProxy'), proxyValue, proxyDetail, system.proxy.status === 'available' ? t(enabledCount ? 'on' : 'off') : proxyNotApplicable ? t('notApplicable') : t(system.proxy.status), enabledCount && system.proxy.status === 'available' ? 'chip-ok' : ''),
     overviewCard(t('dns'), dnsValue, t('searchOmitted'), system.dns.status === 'available' ? 'DNS' : t(system.dns.status), system.dns.nameservers.length ? 'chip-ok' : ''),
     overviewCard(t('defaultRoute'), routeValue, routeDetail, system.route.interface || t(system.route.status), system.route.gateway ? 'chip-ok' : ''),
   ];
 }
 function renderSystemDetails(diagnosis) {
   const proxy = diagnosis.system.proxy;
+  if (proxy.error === 'not-applicable') return [h('p', { class: 'net-detail-row muted', text: t('proxyNotApplicable') })];
   if (!proxy.protocols.length && proxy.status !== 'available') return [h('p', { class: 'net-detail-row muted', text: probeLabel(proxy) || t('unavailable') })];
   const rows = proxy.protocols.map((p) => {
     const endpoint = p.enabled && p.host ? p.host + (p.port ? ':' + p.port : '') : '';
@@ -261,10 +264,13 @@ function renderSystemDetails(diagnosis) {
   return rows;
 }
 function candidateCard(candidate) {
+  const key = 'candidate.' + candidate.label;
+  const common = t(key) === key ? candidate.label : t(key);
+  const processProxy = candidate.processProxy === 'HTTPS_PROXY' || candidate.processProxy === 'ALL_PROXY' ? candidate.processProxy : '';
   return h('article', { class: 'panel net-candidate' },
-    h('h3', { text: candidate.label }),
+    h('h3', { text: processProxy ? t('processProxyCandidate', { variable: processProxy }) : common }),
     h('span', { class: 'chip ' + (candidate.reachable ? 'chip-ok' : ''), text: t(candidate.reachable ? 'reachable' : 'notReachable') }),
-    h('p', { class: 'net-candidate-meta small muted', text: candidate.protocol + ' · ' + candidate.host + ':' + candidate.port + (candidate.error ? ' · ' + candidate.error : '') }));
+    h('p', { class: 'net-candidate-meta small muted', text: candidate.protocol + ' · ' + candidate.host + ':' + candidate.port + (candidate.error ? ' · ' + candidate.error : '') + (processProxy ? ' · ' + common : '') }));
 }
 function routeLabel(target) {
   return h('p', { class: 'net-route' }, h('span', { class: 'muted' }, t('route') + ': '), h('code', { text: target.proxy }));
@@ -303,7 +309,8 @@ function renderMain() {
   $('scope').textContent = t('scope');
   $('not-covered').textContent = t('notCovered');
   $('overview-heading').textContent = t('overview');
-  $('system-heading').textContent = t('systemDetails');
+  // Only macOS has one system proxy to name; older DTOs without a platform get the neutral title.
+  $('system-heading').textContent = t(controller.state.diagnosis && controller.state.diagnosis.platform === 'darwin' ? 'systemDetails' : 'systemProxy');
   $('local-heading').textContent = t('localCandidates');
   $('targets-heading').textContent = t('guardTargets');
   $('warp-limit').textContent = t('warpLimit');

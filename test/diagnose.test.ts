@@ -12,7 +12,7 @@ describe('diagnoseNetwork', () => {
       targets: [],
       now,
       probe: async () => ({ reachable: false, error: 'ECONNREFUSED' }),
-      system: { platform: 'linux' },
+      system: { platform: 'win32' },
     })
     assert.equal(d.checkedAt, '2026-11-23T10:00:00.000Z')
     assert.deepEqual(d.targets, [])
@@ -29,7 +29,7 @@ describe('diagnoseNetwork', () => {
       targets: [{ ...target, guard: { status: 'ok', loc: 'US', checkedAt: '2026-11-23T09:00:00Z' } }, target],
       now,
       probe: async () => ({ reachable: false }),
-      system: { platform: 'linux' },
+      system: { platform: 'win32' },
     })
     assert.equal(d.targets[0]!.guard.status, 'ok')
     assert.equal(d.targets[0]!.guard.loc, 'US')
@@ -77,7 +77,7 @@ describe('diagnoseNetwork', () => {
           probes.push({ host, port, timeout })
           return { reachable: true }
         },
-        system: { platform: 'linux' },
+        system: { platform: 'win32' },
       })
       assert.equal(d.targets[0]!.proxy, item.wantProxy)
       assert.equal(d.targets[0]!.guardSupport, item.support)
@@ -106,7 +106,7 @@ describe('diagnoseNetwork', () => {
       probe: async () => {
         throw new Error('private raw socket error')
       },
-      system: { platform: 'linux' },
+      system: { platform: 'win32' },
     })
     assert.equal(invalid.targets[0]!.guardSupport, 'invalid')
     assert.equal(invalid.targets[0]!.listener, null)
@@ -116,7 +116,7 @@ describe('diagnoseNetwork', () => {
       env: { HTTPS_PROXY: 'http://127.0.0.1:7890' },
       targets: [target],
       probe: async () => ({ reachable: false, error: 'private raw socket error' }),
-      system: { platform: 'linux' },
+      system: { platform: 'win32' },
     })
     assert.equal(malformed.targets[0]!.listener!.error, 'failed')
     assert.doesNotMatch(JSON.stringify(malformed), /private|raw|socket/)
@@ -140,7 +140,7 @@ describe('diagnoseNetwork', () => {
           ? { reachable: true }
           : { reachable: false, error: 'ECONNREFUSED' }
       },
-      system: { platform: 'linux' },
+      system: { platform: 'win32' },
     })
     assert.deepEqual(hosts.sort(), ['127.0.0.1', '::1'])
     assert.deepEqual(d.targets[0]!.listener, { host: '::1', port: 7891, reachable: true })
@@ -166,7 +166,7 @@ describe('diagnoseNetwork', () => {
       ],
       now,
       probe: async () => ({ reachable: false }),
-      system: { platform: 'linux' },
+      system: { platform: 'win32' },
     })
     assert.equal(d.targets[0]!.url, 'https://private.example.com')
     assert.deepEqual(d.targets[0]!.guard, { status: 'unknown', error: 'failed' })
@@ -178,5 +178,59 @@ describe('diagnoseNetwork', () => {
       json,
       /user|password|token|secret|fragment|private-location|tester|private-account|syntheticCredential|private\/path/,
     )
+  })
+
+  it('marks the common port that the process proxy points at and labels the rest as common ports', async () => {
+    const run = async (env: Record<string, string>) =>
+      diagnoseNetwork({
+        env,
+        targets: [],
+        now,
+        probe: async () => ({ reachable: true }),
+        system: { platform: 'win32' },
+      })
+    const https = await run({ HTTPS_PROXY: 'http://127.0.0.1:10808', ALL_PROXY: 'socks5://127.0.0.1:7897' })
+    assert.deepEqual(
+      https.localProxyCandidates.map((p) => [p.label, p.protocol, p.processProxy]),
+      [
+        ['Common Clash Verge mixed port', 'HTTP / SOCKS', undefined],
+        ['Common Clash HTTP port', 'HTTP', undefined],
+        ['Common v2rayN SOCKS port', 'HTTP', 'HTTPS_PROXY'],
+      ],
+    )
+    const all = await run({ all_proxy: 'socks5h://localhost:7897', NO_PROXY: '*' })
+    assert.equal(all.localProxyCandidates[0]!.processProxy, 'ALL_PROXY')
+    assert.equal(all.localProxyCandidates[0]!.protocol, 'SOCKS5H')
+    const envs: Record<string, string>[] = [
+      { HTTPS_PROXY: 'http://192.0.2.1:10808' },
+      { HTTPS_PROXY: 'http://127.0.0.1' },
+      { HTTPS_PROXY: 'http://[::1]:10808' },
+      { HTTPS_PROXY: 'http://127.0.0.2:10808' },
+      {},
+    ]
+    for (const env of envs) {
+      const d = await run(env)
+      assert.ok(d.localProxyCandidates.every((p) => p.processProxy === undefined))
+      assert.equal(d.localProxyCandidates[2]!.protocol, 'SOCKS')
+    }
+  })
+
+  it('reports the platform family that produced the system facts', async () => {
+    const base = { env: {}, targets: [], now, probe: async () => ({ reachable: false }) }
+    assert.equal((await diagnoseNetwork({ ...base, system: { platform: 'win32' } })).platform, 'other')
+    const linux = await diagnoseNetwork({
+      ...base,
+      system: {
+        platform: 'linux',
+        run: async (command) => {
+          if (command === 'ip') return 'default via 192.0.2.1 dev eth0\n'
+          throw Object.assign(new Error('missing'), { code: 'ENOENT' })
+        },
+        readFile: async () => 'nameserver 192.0.2.53\n',
+      },
+    })
+    assert.equal(linux.platform, 'linux')
+    assert.equal(linux.system.route.status, 'available')
+    assert.equal(linux.system.proxy.error, 'not-applicable')
   })
 })

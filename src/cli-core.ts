@@ -7,13 +7,21 @@ export function formatNetworkDiagnosis(d: NetworkDiagnosis): string {
   const lines = [
     `Offline diagnosis: ${d.checkedAt}; no online trace was sent.`,
     `WARP: ${d.system.warp.status}, ${d.system.warp.state}${d.system.warp.networkHealthy === undefined ? '' : `; Network healthy: ${d.system.warp.networkHealthy ? 'yes' : 'no'}`}. Connected does not mean all traffic uses WARP.`,
-    'macOS system proxy:',
   ]
+  if (d.system.proxy.error === 'not-applicable')
+    lines.push(
+      'System proxy: not applicable. This platform has no single system proxy setting; process proxies come from HTTPS_PROXY / ALL_PROXY.',
+    )
+  else lines.push(d.platform === 'darwin' ? 'macOS system proxy:' : 'System proxy:')
   for (const p of d.system.proxy.protocols)
     lines.push(
       `  ${p.protocol.toUpperCase()}: ${p.enabled ? 'on' : 'off'}${p.enabled && p.host ? ` (${p.host}${p.port ? `:${p.port}` : ''})` : ''}.`,
     )
-  if (!d.system.proxy.protocols.length && d.system.proxy.status !== 'available')
+  if (
+    !d.system.proxy.protocols.length &&
+    d.system.proxy.status !== 'available' &&
+    d.system.proxy.error !== 'not-applicable'
+  )
     lines.push(`  ${d.system.proxy.status}${d.system.proxy.error ? ` (${d.system.proxy.error})` : ''}.`)
   if (d.system.proxy.status === 'available') {
     lines.push(`  PAC: ${d.system.proxy.pacEnabled ? 'on' : 'off'} (URL omitted).`)
@@ -28,7 +36,7 @@ export function formatNetworkDiagnosis(d: NetworkDiagnosis): string {
   )
   for (const p of d.localProxyCandidates)
     lines.push(
-      `  ${p.label}: ${p.protocol} ${p.host}:${p.port} ${p.reachable ? 'reachable' : 'not reachable'}${p.error ? ` (${p.error})` : ''}.`,
+      `  ${p.label}: ${p.protocol} ${p.host}:${p.port} ${p.reachable ? 'reachable' : 'not reachable'}${p.error ? ` (${p.error})` : ''}${p.processProxy ? `; ${p.processProxy} points here` : ''}.`,
     )
   for (const t of d.targets) {
     lines.push(`${new URL(t.url).hostname}: ${t.proxy}`)

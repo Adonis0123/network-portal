@@ -3,6 +3,8 @@ import { describe, it } from 'node:test'
 import {
   parseDefaultRoute,
   parseDns,
+  parseLinuxDefaultRoute,
+  parseResolvConf,
   parseSystemProxy,
   parseWarpStatus,
   readNetworkSystem,
@@ -196,7 +198,7 @@ resolver #2
 
     let nonMacCalls = 0
     const nonMac = await readNetworkSystem({
-      platform: 'linux',
+      platform: 'win32',
       run: async () => {
         nonMacCalls++
         return ''
@@ -204,5 +206,94 @@ resolver #2
     })
     assert.equal(nonMacCalls, 0)
     assert.ok(Object.values(nonMac).every((item) => item.status === 'unavailable'))
+  })
+
+  it('keeps only the first Linux default route and a valid gateway and interface', () => {
+    assert.deepEqual(
+      parseLinuxDefaultRoute(
+        'default via 192.0.2.1 dev eth0 proto kernel \ndefault via 198.51.100.1 dev eth3 proto kernel metric 35 \n',
+      ),
+      { gateway: '192.0.2.1', interface: 'eth0' },
+    )
+    assert.deepEqual(parseLinuxDefaultRoute('default via 2001:db8::1 dev wlan0 metric 600\n'), {
+      gateway: '2001:db8::1',
+      interface: 'wlan0',
+    })
+    assert.deepEqual(parseLinuxDefaultRoute('default dev wg0 scope link\n'), { interface: 'wg0' })
+    assert.deepEqual(parseLinuxDefaultRoute('default via gateway.example.com dev eth0\n'), {
+      interface: 'eth0',
+    })
+    assert.deepEqual(
+      parseLinuxDefaultRoute(
+        'default proto static metric 100\n\tnexthop via 192.0.2.1 dev eth0 weight 1\n\tnexthop via 192.0.2.9 dev eth1 weight 1\n192.0.2.0/24 dev eth0\n',
+      ),
+      { interface: 'eth0', gateway: '192.0.2.1' },
+    )
+    for (const output of ['', '192.0.2.0/24 dev eth0 scope link\n', 'default via example dev bad/name\n'])
+      assert.throws(() => parseLinuxDefaultRoute(output), /invalid output/)
+  })
+
+  it('returns at most eight unique resolv.conf nameserver addresses and nothing else', () => {
+    const many = Array.from({ length: 10 }, (_, i) => `nameserver 192.0.2.${i + 1}`).join('\n')
+    assert.equal(parseResolvConf(many).length, 8)
+    assert.deepEqual(
+      parseResolvConf(`# nameserver 203.0.113.9
+search corp.example.com
+options edns0
+nameserver 192.0.2.53
+  nameserver\t2001:db8::53 # trailing note
+nameserver 192.0.2.53
+nameserver dns.example.com
+nameserver fe80::1%eth0
+`),
+      ['192.0.2.53', '2001:db8::53'],
+    )
+    assert.throws(() => parseResolvConf('search corp.example.com\n'), /invalid output/)
+  })
+
+  it('reads Linux route, resolv.conf and WARP, and marks the system proxy not applicable', async () => {
+    const calls: string[] = []
+    const reads: { path: string; maxBytes: number }[] = []
+    const info = await readNetworkSystem({
+      platform: 'linux',
+      run: async (command, args, opts) => {
+        calls.push(`${command} ${args.join(' ')}`)
+        assert.equal(opts.timeoutMs, 900)
+        assert.equal(opts.maxOutput, 32768)
+        if (command === 'warp-cli') return 'Status update: Disconnected\n'
+        return 'default via 192.0.2.1 dev eth0 proto kernel\n'
+      },
+      readFile: async (path, opts) => {
+        reads.push({ path, ...opts })
+        return 'search corp.example.com\nnameserver 192.0.2.53\n'
+      },
+    })
+    assert.deepEqual(calls.sort(), ['ip route show default', 'warp-cli status'])
+    assert.deepEqual(reads, [{ path: '/etc/resolv.conf', maxBytes: 32768 }])
+    assert.deepEqual(info, {
+      warp: { status: 'available', state: 'disconnected' },
+      proxy: {
+        status: 'unavailable',
+        pacEnabled: false,
+        autoDiscoveryEnabled: false,
+        protocols: [],
+        error: 'not-applicable',
+      },
+      dns: { status: 'available', nameservers: ['192.0.2.53'] },
+      route: { status: 'available', gateway: '192.0.2.1', interface: 'eth0' },
+    })
+    assert.doesNotMatch(JSON.stringify(info), /corp/)
+
+    const failing = await readNetworkSystem({
+      platform: 'linux',
+      run: async (command) => {
+        throw Object.assign(new Error('raw details'), { code: command === 'warp-cli' ? 'ENOENT' : 1 })
+      },
+      readFile: () => new Promise<string>(() => {}),
+    })
+    assert.deepEqual(failing.warp, { status: 'unavailable', state: 'unknown', error: 'not-installed' })
+    assert.deepEqual(failing.route, { status: 'error', error: 'exit-1' })
+    assert.deepEqual(failing.dns, { status: 'error', nameservers: [], error: 'timeout' })
+    assert.equal(failing.proxy.error, 'not-applicable')
   })
 })

@@ -6,13 +6,16 @@ Zero-runtime-dependency network diagnosis and a host-embeddable bilingual Networ
 
 ## What it does
 
-- Reads WARP, macOS system proxy, default DNS resolver and default route with bounded, read-only commands.
-- Probes three common loopback proxy ports and selected loopback proxy listeners over TCP.
+- Reads WARP, the system proxy, default DNS resolver and default route with bounded, read-only commands.
+  - macOS: `warp-cli status`, `scutil --proxy`, `scutil --dns` and `route -n get default`.
+  - Linux: `warp-cli status`, `ip route show default` and the `nameserver` lines of `/etc/resolv.conf`. Linux has no single system proxy setting, so the proxy item reports `error: 'not-applicable'`; process proxies come from `HTTPS_PROXY` / `ALL_PROXY`.
+  - Other platforms report every item as unavailable. `NetworkDiagnosis.platform` (`'darwin' | 'linux' | 'other'`) says which set ran.
+- Probes three common loopback proxy ports and selected loopback proxy listeners over TCP. A common port that `HTTPS_PROXY` / `ALL_PROXY` points at is marked with `processProxy`.
 - Combines structured targets with cached Guard facts supplied by the host.
 - Selects and redacts `HTTPS_PROXY` / `ALL_PROXY` routes, including `NO_PROXY` handling.
 - Renders a complete English and Chinese page with loading, empty and error states, an exact AI prompt preview and second-prompt confirmation.
 
-Diagnosis is offline. It sends no online trace, writes no cache, changes no network setting and reads no host account or config files. A reachable TCP listener does not prove the proxy protocol or upstream connectivity works.
+Diagnosis is offline. It sends no online trace, writes no cache, changes no network setting and reads no host account or credential files. The only file it reads is `/etc/resolv.conf` on Linux, capped at 32 KiB, and only its nameserver addresses are kept. A reachable TCP listener does not prove the proxy protocol or upstream connectivity works.
 
 ## Install and build
 
@@ -40,7 +43,7 @@ const diagnosis = await diagnoseNetwork({
 })
 ```
 
-The host owns target discovery and Guard caching. It passes only `{ url, guard? }`; the package never discovers accounts or opens a cache itself. The diagnosis DTO reduces targets to origins, selects only bounded Guard fields and maps errors to an allowlist of reason codes. Use `now`, `probe` and `system.run` to inject deterministic fakes in tests.
+The host owns target discovery and Guard caching. It passes only `{ url, guard? }`; the package never discovers accounts or opens a cache itself. The diagnosis DTO reduces targets to origins, selects only bounded Guard fields and maps errors to an allowlist of reason codes. Use `now`, `probe`, `system.platform`, `system.run` and `system.readFile` to inject deterministic fakes in tests.
 
 The root exports `readNetworkSystem`, `diagnoseNetwork`, `probeListener`, `proxyFor`, `redactedProxy`, `routeLabel`, `networkDiagnoseTaskFacts`, `renderNetworkPage` and their DTO types.
 

@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { diagnoseNetwork } from '../src/diagnose.ts'
 import { networkDiagnoseTaskFacts } from '../src/facts.ts'
+import { DIAGNOSIS } from './fixtures.ts'
 
 describe('networkDiagnoseTaskFacts', () => {
   it('includes WARP, PAC, DNS, route, candidates and Guard limitations', () => {
     const facts = networkDiagnoseTaskFacts({
       checkedAt: '2026-11-23T01:00:00Z',
+      platform: 'darwin',
       system: {
         warp: { status: 'available', state: 'connected', networkHealthy: true },
         proxy: {
@@ -135,7 +137,8 @@ describe('networkDiagnoseTaskFacts', () => {
     )
     const text = facts.join('\n')
     assert.match(text, /WARP: unavailable, unknown/)
-    assert.match(text, /macOS system proxy: unavailable/)
+    assert.match(text, /^System proxy: unavailable/m)
+    assert.doesNotMatch(text, /macOS/)
     assert.match(text, /api\.anthropic\.com: proxy not reported/)
     assert.match(text, /Guard not-checked, not checked yet/)
   })
@@ -150,11 +153,42 @@ describe('networkDiagnoseTaskFacts', () => {
       const diagnosis = await diagnoseNetwork({
         env: {},
         targets: [{ url: 'https://api.anthropic.com', guard: { status: 'unknown', error: input } }],
-        system: { platform: 'linux' },
+        system: { platform: 'win32' },
       })
       assert.equal(diagnosis.targets[0]!.guard.error, expected)
       const text = networkDiagnoseTaskFacts(diagnosis).join('\n')
       assert.match(text, new RegExp(`, ${expected}(?:\\n|$)`))
     }
+  })
+
+  it('names the Linux platform, explains the missing system proxy and marks the process proxy port', () => {
+    const text = networkDiagnoseTaskFacts({
+      ...DIAGNOSIS,
+      platform: 'linux',
+      system: {
+        ...DIAGNOSIS.system,
+        proxy: {
+          status: 'unavailable',
+          pacEnabled: false,
+          autoDiscoveryEnabled: false,
+          protocols: [],
+          error: 'not-applicable',
+        },
+      },
+      localProxyCandidates: [
+        {
+          label: 'Common v2rayN SOCKS port',
+          protocol: 'HTTP',
+          host: '127.0.0.1',
+          port: 10808,
+          reachable: true,
+          processProxy: 'HTTPS_PROXY',
+        },
+      ],
+    }).join('\n')
+    assert.match(text, /^Platform: Linux$/m)
+    assert.match(text, /^System proxy: not applicable on Linux; .*HTTPS_PROXY \/ ALL_PROXY$/m)
+    assert.match(text, /10808 reachable; this is the port HTTPS_PROXY points at;/)
+    assert.doesNotMatch(text, /macOS|unavailable; not-applicable/)
   })
 })

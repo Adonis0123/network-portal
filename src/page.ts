@@ -6,7 +6,7 @@ const MESSAGES = {
     title: 'Network',
     tagline: 'WARP, system routes, local proxy listeners, and Guard targets.',
     intro:
-      'A read-only view of the connections this Mac is configured to use. Diagnosis is offline: it sends no trace and changes no network setting or route.',
+      'A read-only view of the connections this machine is configured to use. Diagnosis is offline: it sends no trace and changes no network setting or route.',
     scope:
       "Process proxy and Guard facts come from this page's host process environment. Older sessions keep their own environment; run the host's network diagnosis CLI in that terminal to inspect them.",
     notCovered:
@@ -30,6 +30,10 @@ const MESSAGES = {
     proxyEnabled: '{count} enabled',
     proxyDisabled: 'All proxy methods off',
     proxyExceptions: '{count} exceptions; names omitted',
+    notApplicable: 'Not applicable',
+    proxyNotApplicable:
+      'Linux has no single system proxy setting. Process proxies come from HTTPS_PROXY / ALL_PROXY; see the candidates and routes below.',
+    proxyNotApplicableShort: 'Process proxies use HTTPS_PROXY / ALL_PROXY',
     dns: 'DNS default resolver',
     dnsNone: 'No nameservers returned',
     searchOmitted: 'Search domains omitted',
@@ -45,7 +49,8 @@ const MESSAGES = {
     reachable: 'TCP reachable',
     notReachable: 'TCP not reachable',
     candidateLimit:
-      'These are common Clash and v2rayN ports, not identified processes. TCP reachability does not prove the proxy protocol or upstream availability.',
+      'Ports are common defaults for Clash Verge, Clash and v2rayN, not identified processes; a port that HTTPS_PROXY or ALL_PROXY points at is marked as the process proxy. TCP reachability does not prove the proxy protocol or upstream availability.',
+    processProxyCandidate: 'Process proxy ({variable})',
     diagnose: 'Diagnose connection',
     diagnoseAgain: 'Diagnose again',
     diagnosing: 'Diagnosing…',
@@ -95,7 +100,7 @@ const MESSAGES = {
   zh: {
     title: 'Network',
     tagline: '查看 WARP、系统路由、本地代理 listener 和 Guard targets。',
-    intro: '只读查看这台 Mac 当前配置的连接方式。离线诊断不发送 trace，也不修改任何网络设置或路由。',
+    intro: '只读查看这台机器当前配置的连接方式。离线诊断不发送 trace，也不修改任何网络设置或路由。',
     scope:
       '进程代理和 Guard facts 来自当前页面宿主进程的环境。旧会话保留自己的环境；请在对应终端运行宿主的网络诊断 CLI。',
     notCovered: '系统命令和 TCP 探测只观察当前机器，不控制 WARP、代理应用、DNS 或路由。',
@@ -118,6 +123,10 @@ const MESSAGES = {
     proxyEnabled: '已启用 {count} 项',
     proxyDisabled: '所有代理方式均已关闭',
     proxyExceptions: '{count} 条例外；不显示域名',
+    notApplicable: '不适用',
+    proxyNotApplicable:
+      'Linux 没有统一的系统代理设置；进程代理看下方 HTTPS_PROXY / ALL_PROXY 对应的候选端口和路由。',
+    proxyNotApplicableShort: '进程代理看 HTTPS_PROXY / ALL_PROXY',
     dns: 'DNS default resolver',
     dnsNone: '未返回 nameserver',
     searchOmitted: '不返回 search domains',
@@ -133,7 +142,11 @@ const MESSAGES = {
     reachable: 'TCP 可连接',
     notReachable: 'TCP 不可连接',
     candidateLimit:
-      '这些是 Clash 和 v2rayN 常见端口，不代表已识别进程。TCP 可连接不代表代理协议或上游网络可用。',
+      '这些是 Clash Verge、Clash 和 v2rayN 的常见默认端口，不代表已识别进程；HTTPS_PROXY 或 ALL_PROXY 指向的端口会标为进程代理。TCP 可连接不代表代理协议或上游网络可用。',
+    processProxyCandidate: '进程代理（{variable}）',
+    'candidate.Common Clash Verge mixed port': '常见端口：Clash Verge mixed',
+    'candidate.Common Clash HTTP port': '常见端口：Clash HTTP',
+    'candidate.Common v2rayN SOCKS port': '常见端口：v2rayN SOCKS',
     diagnose: '诊断连接',
     diagnoseAgain: '重新诊断',
     diagnosing: '正在诊断…',
@@ -306,13 +319,13 @@ export function renderNetworkPage(opts: NetworkPageOptions): string {
 <main class="wrap network-main">
   <section class="network-hero" aria-labelledby="title">
     <h2 id="title">Network</h2>
-    <p id="intro">A read-only, offline view of this Mac's network configuration.</p>
+    <p id="intro">A read-only, offline view of this machine's network configuration.</p>
     <div class="network-actions"><button id="diagnose" class="btn btn-primary" type="button" aria-busy="true">Diagnosing…</button><button id="ask-open" class="btn" type="button" aria-haspopup="dialog" hidden>Let AI diagnose</button></div>
     <div id="status"><p class="note" role="status">Running an offline diagnosis. No online trace is sent.</p></div>
   </section>
   <section class="network-notes" aria-label="Scope"><p id="scope" class="note"></p><p id="not-covered" class="small muted"></p></section>
   <section class="net-section" aria-labelledby="overview-heading"><div class="section-head"><h2 id="overview-heading">Overview</h2></div><div id="overview" class="net-overview" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="warp-limit" class="small muted network-notes"></p></section>
-  <section class="net-section" aria-labelledby="system-heading"><div class="section-head"><h2 id="system-heading">macOS system proxy</h2></div><div id="system-details" class="panel net-detail-panel" aria-busy="true"><div class="net-detail-row"><span class="sk sk-line w70"></span></div></div></section>
+  <section class="net-section" aria-labelledby="system-heading"><div class="section-head"><h2 id="system-heading">System proxy</h2></div><div id="system-details" class="panel net-detail-panel" aria-busy="true"><div class="net-detail-row"><span class="sk sk-line w70"></span></div></div></section>
   <section class="net-section" aria-labelledby="local-heading"><div class="section-head"><h2 id="local-heading">Local proxy candidates</h2></div><div id="local-candidates" class="net-candidate-list" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="candidate-limit" class="small muted network-notes"></p></section>
   <section class="net-section" aria-labelledby="targets-heading"><div class="section-head"><h2 id="targets-heading">Guard targets</h2></div><div id="targets" aria-live="polite" aria-busy="true"><div class="panel net-placeholder"><span class="sk sk-line w70"></span><span class="sk sk-line w50"></span></div></div><p id="tcp-limit" class="small muted network-notes"></p></section>
   <footer class="foot muted small">${attr(footer)}</footer>
