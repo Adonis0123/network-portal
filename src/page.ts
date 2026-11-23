@@ -228,6 +228,8 @@ const NETWORK_CSS = `
 .net-detail-panel { min-width: 0; padding: 0; overflow: hidden; }
 .net-detail-row { display: grid; grid-template-columns: minmax(100px, 180px) minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border); }
 .net-detail-row:first-child { border-top: 0; }
+/* A single sentence (not applicable, unavailable) has no label/value/chip columns to fill. */
+p.net-detail-row { display: block; margin: 0; }
 .net-detail-value { min-width: 0; overflow-wrap: anywhere; }
 .net-detail-row .chip { justify-self: end; }
 .net-candidate-list { display: grid; gap: 12px; }
