@@ -39,7 +39,10 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=4 \"test/**/*.test.ts\"",
     "lint": "biome check src test",
-    "leak-check": "sh scripts/leak-check.sh"
+    "leak-check": "sh scripts/leak-check.sh",
+    "release": "node scripts/release.ts",
+    "prepublishOnly": "node scripts/pin-english-npm-readme.ts",
+    "postpublish": "node scripts/pin-english-npm-readme.ts --restore"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
